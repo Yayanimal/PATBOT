@@ -23,7 +23,7 @@ with st.sidebar:
     # A. LE LOGO PRESTIGE (Doré sur fond sombre)
     col_logo, col_title = st.columns([1, 3])
     with col_logo:
-        # Icône "Colonne Grecque Dorée" (Symbole Patrimoine) - URL fiable
+        # Icône "Colonne Grecque Dorée"
         st.image("https://cdn-icons-png.flaticon.com/512/1995/1995515.png", width=60)
     with col_title:
         st.markdown(
@@ -69,4 +69,46 @@ with st.sidebar:
         label_visibility="collapsed"
     )
     
-    if selected_dossier != st.session_state.active
+    # C'est ici que tu avais l'erreur : J'ai bien vérifié la syntaxe
+    if selected_dossier != st.session_state.active_dossier:
+        st.session_state.active_dossier = selected_dossier
+        st.rerun()
+
+    # C. OUTILS DE GESTION (Renommer / Supprimer)
+    with st.expander(f"⚙️ Action : {st.session_state.active_dossier}", expanded=False):
+        
+        # Renommer
+        new_name_input = st.text_input("Renommer :", value=st.session_state.active_dossier)
+        if st.button("Valider Nom"):
+            if new_name_input and new_name_input != st.session_state.active_dossier:
+                st.session_state.dossiers[new_name_input] = st.session_state.dossiers.pop(st.session_state.active_dossier)
+                st.session_state.active_dossier = new_name_input
+                st.rerun()
+
+        # Supprimer
+        st.markdown("---")
+        if st.button("🗑️ Supprimer Dossier", type="primary"):
+            if len(dossier_list) > 1:
+                del st.session_state.dossiers[st.session_state.active_dossier]
+                st.session_state.active_dossier = list(st.session_state.dossiers.keys())[0]
+                st.rerun()
+            else:
+                st.error("Impossible de supprimer l'unique dossier.")
+
+    st.markdown("---")
+
+    # D. PARAMÈTRES EXPERTS
+    st.caption("🧠 PARAMÈTRES D'ANALYSE")
+    
+    profil = st.selectbox(
+        "Profil Client", 
+        ["Mode Général (Recherche)", "Particulier (IR)", "Chef d'entreprise (TNS)", "Société (IS)", "Non-résident"]
+    )
+    
+    annee_fiscale = st.selectbox("Loi de Finances", ["2026", "2025", "2024"])
+
+# --- 4. CONNEXION IA ---
+try:
+    api_key = st.secrets["GOOGLE_API_KEY"]
+    genai.configure(api_key=api_key)
+    model =
