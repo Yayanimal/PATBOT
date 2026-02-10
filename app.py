@@ -6,7 +6,7 @@ import os
 import base64
 import random
 import matplotlib.pyplot as plt
-import time # Pour la gestion de l'attente (Anti-Crash)
+import time
 
 # Gestion import Search
 try: from duckduckgo_search import DDGS
@@ -19,9 +19,9 @@ FILE_NOIR = "LOGONOIR.png"
 FILE_BLANC = "LOGOBLANC.png"
 
 SUGGESTIONS_DB = [
-    {"icon": "📊", "label": "Allocation Actifs", "prompt": "Fais-moi un graphique camembert pour une allocation : 50% Immobilier, 30% Actions, 15% Obligations, 5% Liquidités."},
+    {"icon": "📈", "label": "Simul. Intérêts", "prompt": "Fais un graphique en courbe (LINE) montrant l'évolution de 10k€ placés à 5% sur 10 ans."},
+    {"icon": "📊", "label": "Allocation Actifs", "prompt": "Fais un graphique Donut : 50% Immobilier, 30% Actions, 20% Cash."},
     {"icon": "🏠", "label": "Crédit Immo", "prompt": "Calcule la mensualité pour 200.000€ empruntés sur 20 ans à 3.8%."},
-    {"icon": "📈", "label": "Taux & Marchés", "prompt": "Quels sont les taux d'emprunt actuels (OAT, Euribor) ?"},
     {"icon": "🏢", "label": "Holding", "prompt": "Quelle stratégie Rémunération vs Dividendes privilégier en 2026 ?"},
     {"icon": "👨‍👩‍👧‍👦", "label": "Protection Conjoint", "prompt": "Comment optimiser la donation au dernier vivant ?"},
     {"icon": "📉", "label": "Déficit Foncier", "prompt": "Explique le mécanisme du déficit foncier."},
@@ -37,7 +37,6 @@ st.markdown("""
     div[data-testid="stFileUploader"] { padding-top: 0px; }
     section[data-testid="stFileUploaderDropzone"] { background-color: rgba(255, 255, 255, 0.05); border: 1px dashed #D4AF37; border-radius: 8px; padding: 10px; }
     div[data-testid="stToggle"] label { color: #D4AF37 !important; font-weight: bold; }
-    /* Style Simulateurs */
     .stNumberInput label { color: #D4AF37 !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -77,49 +76,71 @@ def search_web_duckduckgo(query):
             return web_context
     except Exception as e: return f"Erreur Web: {e}"
 
-# --- MOTEUR GRAPHIQUE ---
+# --- MOTEUR GRAPHIQUE AVANCÉ (V34) ---
 def parse_and_render_graph(text):
     if "[[GRAPH:" not in text: return None
     try:
         tag = text.split("[[GRAPH:")[1].split("]]")[0]
         graph_type, data_str = tag.split(":", 1)
         data = {}
+        # Parsing robuste
         for item in data_str.split(";"):
-            key, val = item.split("=")
-            data[key.strip()] = float(val.strip().replace("%", ""))
+            if "=" in item:
+                key, val = item.split("=")
+                try: data[key.strip()] = float(val.strip().replace("%", "").replace("€", ""))
+                except: pass
+        
+        if not data: return None
+
         labels = list(data.keys())
         sizes = list(data.values())
         
+        # Style Pro
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(6, 4))
         fig.patch.set_facecolor('none'); ax.set_facecolor('none')
-        colors = ['#D4AF37', '#8B0000', '#2F4F4F', '#C0C0C0', '#DAA520']
+        colors = ['#D4AF37', '#B8860B', '#CD853F', '#8B4513', '#A0522D', '#808080'] # Dégradé Or/Bronze
         
+        # 1. CAMEMBERT
         if graph_type == "PIE":
-            wedges, texts, autotexts = ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90, colors=colors[:len(labels)])
+            wedges, texts, autotexts = ax.pie(sizes, labels=labels, autopct='%1.0f%%', startangle=90, colors=colors)
             plt.setp(texts, color="white", fontsize=9); plt.setp(autotexts, size=8, weight="bold", color="black")
             ax.axis('equal')
-        elif graph_type == "BAR":
-            ax.bar(labels, sizes, color='#D4AF37'); ax.tick_params(colors='white')
-        return fig
-    except: return None
 
-# --- FONCTION SECURISEE (ANTI-CRASH 429) ---
+        # 2. DONUT (Nouveau)
+        elif graph_type == "DONUT":
+            wedges, texts, autotexts = ax.pie(sizes, labels=labels, autopct='%1.0f%%', startangle=90, colors=colors, wedgeprops=dict(width=0.4)) # width=0.4 fait le trou
+            plt.setp(texts, color="white", fontsize=9); plt.setp(autotexts, size=8, weight="bold", color="white")
+            ax.axis('equal')
+
+        # 3. BATONS
+        elif graph_type == "BAR":
+            ax.bar(labels, sizes, color='#D4AF37')
+            ax.tick_params(colors='white', labelsize=8)
+            ax.grid(axis='y', linestyle='--', alpha=0.3) # Petite grille discrète
+
+        # 4. COURBE (Nouveau)
+        elif graph_type == "LINE":
+            ax.plot(labels, sizes, marker='o', linestyle='-', color='#D4AF37', linewidth=2)
+            ax.fill_between(labels, sizes, color='#D4AF37', alpha=0.1) # Effet d'aire sous la courbe
+            ax.tick_params(colors='white', labelsize=8)
+            ax.grid(linestyle='--', alpha=0.3)
+            
+        plt.tight_layout()
+        return fig
+    except Exception as e: 
+        print(f"Graph Error: {e}")
+        return None
+
 def safe_generate_content(model, prompt):
-    """Essaie de générer une réponse. Si erreur 429 (Quota), attend et réessaie."""
     max_retries = 3
     for attempt in range(max_retries):
-        try:
-            return model.generate_content(prompt).text
+        try: return model.generate_content(prompt).text
         except Exception as e:
             if "429" in str(e):
-                if attempt < max_retries - 1:
-                    time.sleep(5) # On attend 5 secondes
-                    continue
-                else:
-                    return "⚠️ **Le serveur est surchargé (Quota Google atteint).** Merci d'attendre 30 secondes avant de relancer une requête."
-            else:
-                return f"Erreur technique : {e}"
+                if attempt < max_retries - 1: time.sleep(5); continue
+                else: return "⚠️ Surcharge serveur (Quota). Réessayez dans 30s."
+            else: return f"Erreur : {e}"
 
 def create_pdf(name, history, profil, annee):
     class PDF(FPDF):
@@ -176,31 +197,25 @@ with st.sidebar:
         if text != st.session_state.doc_context: st.session_state.doc_context = text; st.toast(f"✅ Fichier lu : {uploaded_file.name}")
     else: st.session_state.doc_context = ""
     
-    # --- MODULE CALCULATRICES (NOUVEAU) ---
     with st.expander("🧮 Simulateurs Rapides"):
-        calculette = st.selectbox("Choisir un outil", ["Crédit Immo", "Estimer TMI"])
-        
+        calculette = st.selectbox("Outil", ["Crédit Immo", "TMI Express"])
         if calculette == "Crédit Immo":
-            montant = st.number_input("Montant (€)", value=200000, step=1000)
-            taux = st.number_input("Taux (%)", value=3.8, step=0.1)
-            duree = st.number_input("Durée (années)", value=20, step=1)
-            if st.button("Calculer Mensualité"):
-                t_mensuel = taux / 100 / 12; n_mois = duree * 12
-                mensualite = montant * t_mensuel / (1 - (1 + t_mensuel) ** -n_mois)
-                st.success(f"💳 **{mensualite:.2f} € / mois**")
-                
-        elif calculette == "Estimer TMI":
-            revenu = st.number_input("Revenu Net Imposable", value=50000, step=1000)
-            parts = st.number_input("Nombre de parts", value=1.0, step=0.5)
-            if st.button("Calculer TMI"):
-                # Barème simplifié 2024
-                qf = revenu / parts
-                tmi = 0
-                if qf > 177122: tmi = 45
-                elif qf > 82341: tmi = 41
-                elif qf > 28797: tmi = 30
-                elif qf > 11294: tmi = 11
-                st.info(f"📊 Votre TMI estimée : **{tmi}%**")
+            montant = st.number_input("Montant (€)", 200000, step=1000)
+            taux = st.number_input("Taux (%)", 3.8, step=0.1)
+            duree = st.number_input("Années", 20, step=1)
+            if st.button("Calculer"):
+                tm = taux/100/12; nm = duree*12; m = montant*tm/(1-(1+tm)**-nm)
+                st.success(f"💳 **{m:.2f} € / mois**")
+        elif calculette == "TMI Express":
+            rev = st.number_input("Revenu Net", 50000, step=1000)
+            parts = st.number_input("Parts", 1.0, step=0.5)
+            if st.button("Calculer"):
+                qf = rev/parts; tmi = 0
+                if qf>177122: tmi=45
+                elif qf>82341: tmi=41
+                elif qf>28797: tmi=30
+                elif qf>11294: tmi=11
+                st.info(f"📊 TMI : **{tmi}%**")
 
     st.markdown("---")
     chats = list(st.session_state.dossiers.keys())[::-1]
@@ -278,16 +293,16 @@ if chat_history and chat_history[-1]["role"] == "user":
             if st.session_state.web_mode: web_ctx = search_web_duckduckgo(last_msg)
             doc_ctx = ""
             if st.session_state.doc_context: doc_ctx = f"\nDOC:\n{st.session_state.doc_context}\n"
-            graph_instruction = "\nSI demande graphique: [[GRAPH:TYPE:Label1=Val1;Label2=Val2]]. TYPE=PIE|BAR. Sinon rien."
+            
+            # --- INSTRUCTION GRAPHIQUE V34 ---
+            graph_instruction = "\nSI demande graphique: [[GRAPH:TYPE:Label1=Val1;Label2=Val2]]. TYPE=PIE|DONUT|BAR|LINE. Exemple LINE: [[GRAPH:LINE:2020=100;2021=110]]. Sinon rien."
             
             ctx = f"ROLE: PATBOT. PROFIL: {st.session_state.last_p}. ANNEE: {st.session_state.last_a}. {web_ctx} {doc_ctx} {graph_instruction}\n"
             for m in chat_history[:-1]: ctx += f"{m['role']}: {m['content']}\n"
             ctx += f"user: {last_msg}\nassistant:"
             
-            # --- APPEL SECURISE (ANTI CRASH) ---
             resp = safe_generate_content(model, ctx)
             
-            # Affichage
             display_content = resp.split("[[GRAPH:")[0]
             st.markdown(display_content)
             fig = parse_and_render_graph(resp)
