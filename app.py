@@ -11,9 +11,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# NOMS DES FICHIERS (Doivent correspondre exactement à ton GitHub)
-FILE_NOIR = "logo_noir.png"  # Utilisé pour le Mode Clair & le PDF
-FILE_BLANC = "logo_blanc.png" # Utilisé pour le Mode Sombre & l'Avatar
+# NOMS EXACTS DES FICHIERS SUR TON GITHUB (Sans tiret)
+FILE_NOIR = "logonoir.png"   # Pour Mode Clair & PDF
+FILE_BLANC = "logoblanc.png" # Pour Mode Sombre
 
 # --- 2. FONCTION : LOGO DYNAMIQUE (CSS) ---
 def render_dynamic_logo():
@@ -21,8 +21,9 @@ def render_dynamic_logo():
     Affiche le logo Blanc si le site est en Mode Sombre.
     Affiche le logo Noir si le site est en Mode Clair.
     """
+    # Vérification de sécurité
     if not os.path.exists(FILE_NOIR) or not os.path.exists(FILE_BLANC):
-        st.warning(f"⚠️ Images introuvables. Assurez-vous d'avoir '{FILE_NOIR}' et '{FILE_BLANC}' à la racine.")
+        st.warning(f"⚠️ Images introuvables. Le code cherche '{FILE_NOIR}' et '{FILE_BLANC}'.")
         return
 
     # Conversion en Base64 pour injection HTML
@@ -31,7 +32,7 @@ def render_dynamic_logo():
     with open(FILE_BLANC, "rb") as f:
         b64_blanc = base64.b64encode(f.read()).decode()
 
-    # CSS Intelligent
+    # CSS Intelligent (Media Queries)
     css = f"""
     <style>
     .logo-container {{
@@ -210,7 +211,6 @@ with st.sidebar:
 st.title(f"📂 {st.session_state.active}")
 
 # Avatar pour le chat (On utilise le blanc car l'interface chat est souvent sombre/neutre)
-# Si tu veux que l'avatar change aussi, c'est plus complexe, donc on garde le blanc par défaut ici.
 bot_avatar = FILE_BLANC if os.path.exists(FILE_BLANC) else "🏛️"
 
 for msg in st.session_state.dossiers[st.session_state.active]:
