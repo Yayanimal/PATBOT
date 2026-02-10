@@ -5,56 +5,41 @@ import PyPDF2
 import os
 import base64
 import random
+import matplotlib.pyplot as plt # Le moteur graphique
 
-# Gestion erreurs import
-try:
-    from duckduckgo_search import DDGS
-except ImportError:
-    DDGS = None
+# Gestion import Search
+try: from duckduckgo_search import DDGS
+except ImportError: DDGS = None
 
 # --- 1. CONFIGURATION ---
-st.set_page_config(
-    page_title="PATBOT",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="PATBOT", page_icon="🤖", layout="wide", initial_sidebar_state="expanded")
 
 FILE_NOIR = "LOGONOIR.png"
 FILE_BLANC = "LOGOBLANC.png"
 
 SUGGESTIONS_DB = [
-    {"icon": "📈", "label": "Taux & Marchés", "prompt": "Quels sont les taux d'emprunt actuels (OAT, Euribor) et la tendance immobilière ?"},
+    {"icon": "📊", "label": "Allocation Actifs", "prompt": "Fais-moi un graphique camembert pour une allocation : 50% Immobilier, 30% Actions, 15% Obligations, 5% Liquidités."},
     {"icon": "🏢", "label": "Holding", "prompt": "Quelle stratégie Rémunération vs Dividendes privilégier en 2026 ?"},
+    {"icon": "📈", "label": "Taux & Marchés", "prompt": "Quels sont les taux d'emprunt actuels (OAT, Euribor) ?"},
     {"icon": "🏠", "label": "Immo : LMNP vs SCI", "prompt": "Comparatif chiffré LMNP réel vs SCI à l'IS pour un bien à 200k€."},
     {"icon": "👨‍👩‍👧‍👦", "label": "Protection Conjoint", "prompt": "Comment optimiser la donation au dernier vivant ?"},
-    {"icon": "📉", "label": "Déficit Foncier", "prompt": "Explique le mécanisme du déficit foncier et son report."},
-    {"icon": "👵", "label": "PER & Retraite", "prompt": "Le PER est-il intéressant pour une TMI à 41% ?"},
-    {"icon": "🌍", "label": "Expatriation", "prompt": "Conséquences fiscales d'un départ au Portugal pour un retraité ?"},
-    {"icon": "💰", "label": "Assurance Vie", "prompt": "Avantages du contrat luxembourgeois (FID) ?"}
+    {"icon": "📉", "label": "Déficit Foncier", "prompt": "Explique le mécanisme du déficit foncier."},
+    {"icon": "🌍", "label": "Expatriation", "prompt": "Conséquences fiscales d'un départ au Portugal ?"},
+    {"icon": "💰", "label": "Assurance Vie", "prompt": "Avantages du contrat luxembourgeois ?"}
 ]
 
 # --- CSS ---
 st.markdown("""
 <style>
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .sidebar-title {
-        font-size: 20px; font-weight: 600; text-align: center; margin-top: 10px; color: #D4AF37;
-    }
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
+    .sidebar-title {font-size: 20px; font-weight: 600; text-align: center; margin-top: 10px; color: #D4AF37;}
     div[data-testid="stFileUploader"] { padding-top: 0px; }
-    section[data-testid="stFileUploaderDropzone"] {
-        background-color: rgba(255, 255, 255, 0.05);
-        border: 1px dashed #D4AF37;
-        border-radius: 8px;
-        padding: 10px;
-    }
+    section[data-testid="stFileUploaderDropzone"] { background-color: rgba(255, 255, 255, 0.05); border: 1px dashed #D4AF37; border-radius: 8px; padding: 10px; }
     div[data-testid="stToggle"] label { color: #D4AF37 !important; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. FONCTIONS ---
+# --- 2. FONCTIONS UTILITAIRES ---
 def render_dynamic_logo():
     if not os.path.exists(FILE_NOIR) or not os.path.exists(FILE_BLANC): return
     with open(FILE_NOIR, "rb") as f: b64_n = base64.b64encode(f.read()).decode()
@@ -74,11 +59,9 @@ def extract_text_from_pdf(uploaded_file):
     try:
         reader = PyPDF2.PdfReader(uploaded_file)
         text = ""
-        for page in reader.pages:
-            text += page.extract_text() + "\n"
+        for page in reader.pages: text += page.extract_text() + "\n"
         return text
-    except Exception as e:
-        return f"Erreur lecture PDF: {e}"
+    except Exception as e: return f"Erreur lecture PDF: {e}"
 
 def search_web_duckduckgo(query):
     if DDGS is None: return "Module de recherche non installé."
@@ -87,11 +70,52 @@ def search_web_duckduckgo(query):
             results = list(ddgs.text(query, region='fr-fr', safesearch='off', max_results=3))
             if not results: return "Aucun résultat web."
             web_context = "--- INFO WEB LIVE ---\n"
-            for res in results:
-                web_context += f"• {res['title']} ({res['href']}): {res['body']}\n"
+            for res in results: web_context += f"• {res['title']} ({res['href']}): {res['body']}\n"
             return web_context
+    except Exception as e: return f"Erreur Web: {e}"
+
+# --- MOTEUR GRAPHIQUE V32 ---
+def parse_and_render_graph(text):
+    """Détecte le tag [[GRAPH:TYPE:Data]] et dessine le graphique"""
+    if "[[GRAPH:" not in text: return None
+    
+    try:
+        # Extraction du code graphique
+        tag = text.split("[[GRAPH:")[1].split("]]")[0]
+        graph_type, data_str = tag.split(":", 1)
+        
+        # Parsing des données (Label=Val;Label=Val)
+        data = {}
+        for item in data_str.split(";"):
+            key, val = item.split("=")
+            data[key.strip()] = float(val.strip().replace("%", ""))
+            
+        labels = list(data.keys())
+        sizes = list(data.values())
+        
+        # Création du graphique Matplotlib style "Luxe"
+        plt.style.use('dark_background') # Fond sombre pour aller avec l'app
+        fig, ax = plt.subplots(figsize=(6, 4))
+        fig.patch.set_facecolor('none') # Fond transparent
+        ax.set_facecolor('none')
+        
+        colors = ['#D4AF37', '#8B0000', '#2F4F4F', '#C0C0C0', '#DAA520'] # Or, Rouge sombre, Gris, etc.
+        
+        if graph_type == "PIE":
+            wedges, texts, autotexts = ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90, colors=colors[:len(labels)])
+            plt.setp(texts, color="white", fontsize=9)
+            plt.setp(autotexts, size=8, weight="bold", color="black")
+            ax.axis('equal')
+            
+        elif graph_type == "BAR":
+            ax.bar(labels, sizes, color='#D4AF37')
+            ax.tick_params(axis='x', colors='white')
+            ax.tick_params(axis='y', colors='white')
+            
+        return fig
     except Exception as e:
-        return f"Erreur Web: {e}"
+        st.error(f"Erreur graphique : {e}")
+        return None
 
 def create_pdf(name, history, profil, annee):
     class PDF(FPDF):
@@ -124,8 +148,10 @@ def create_pdf(name, history, profil, annee):
         pdf.cell(0, 8, role, 0, 1)
         pdf.set_font("Arial", '', 10)
         pdf.set_text_color(0)
-        try: txt = msg["content"].encode('latin-1', 'replace').decode('latin-1')
-        except: txt = msg["content"]
+        # On nettoie le tag graphique du PDF pour que ce soit propre
+        clean_content = msg["content"].split("[[GRAPH:")[0]
+        try: txt = clean_content.encode('latin-1', 'replace').decode('latin-1')
+        except: txt = clean_content
         pdf.multi_cell(0, 5, txt); pdf.ln(5)
     return bytes(pdf.output())
 
@@ -147,7 +173,6 @@ if "random_suggestions" not in st.session_state: st.session_state.random_suggest
 # --- 4. SIDEBAR ---
 with st.sidebar:
     render_dynamic_logo()
-    
     if st.button("＋ Nouvelle discussion", type="primary", use_container_width=True):
         idx = len(st.session_state.dossiers) + 1
         name = f"Discussion {idx}"
@@ -161,7 +186,6 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### 🛠️ Centre de Contrôle")
-    
     web_on = st.toggle("🌐 Recherche Web Live", value=st.session_state.web_mode)
     if web_on != st.session_state.web_mode: st.session_state.web_mode = web_on; st.rerun()
 
@@ -198,7 +222,6 @@ with st.sidebar:
 chat_history = st.session_state.dossiers[st.session_state.active]
 bot_avatar = FILE_BLANC if os.path.exists(FILE_BLANC) else "🤖"
 
-# Titre
 col_title, col_edit = st.columns([8, 1])
 with col_title:
     if st.session_state.editing_title:
@@ -208,24 +231,18 @@ with col_title:
             st.session_state.active = new_name
             st.session_state.editing_title = False
             st.rerun()
-    else:
-        st.markdown(f"<h1 style='margin-top: -20px;'>{st.session_state.active}</h1>", unsafe_allow_html=True)
+    else: st.markdown(f"<h1 style='margin-top: -20px;'>{st.session_state.active}</h1>", unsafe_allow_html=True)
 with col_edit:
     if st.button("✏️"): st.session_state.editing_title = not st.session_state.editing_title; st.rerun()
 
-# Accueil (Suggestions + PRESENTATION)
 if not chat_history:
     if os.path.exists(FILE_BLANC): st.image(FILE_BLANC, width=100)
-    
-    # --- AJOUT DU TEXTE DE PRÉSENTATION ICI ---
     st.markdown("""
     <div style='text-align: center; color: #888; margin-bottom: 30px; line-height: 1.5;'>
     Expert en gestion de patrimoine, je base mes analyses sur les textes officiels (CGI, BOFiP).<br>
     Pour obtenir des données de marché en temps réel, activez l'option <b>🌐 Recherche Web Live</b> dans la barre latérale.
     </div>
     """, unsafe_allow_html=True)
-    # -----------------------------------------
-    
     if st.session_state.doc_context: st.success("📂 Document chargé.")
     sug = st.session_state.random_suggestions
     col1, col2 = st.columns(2)
@@ -236,31 +253,34 @@ if not chat_history:
         if st.button(f"{sug[2]['icon']} {sug[2]['label']}", use_container_width=True): st.session_state.prompt_trigger = sug[2]['prompt']; st.rerun()
         if st.button(f"{sug[3]['icon']} {sug[3]['label']}", use_container_width=True): st.session_state.prompt_trigger = sug[3]['prompt']; st.rerun()
 
-# Affichage des messages
+# AFFICHAGE CHAT
 for msg in chat_history:
     av = bot_avatar if msg["role"] == "assistant" else None
     with st.chat_message(msg["role"], avatar=av):
-        st.markdown(msg["content"])
+        # On n'affiche pas le code graphique brut à l'utilisateur
+        display_content = msg["content"].split("[[GRAPH:")[0]
+        st.markdown(display_content)
+        
+        # SI GRAPHIQUE DÉTECTÉ, ON LE DESSINE
+        fig = parse_and_render_graph(msg["content"])
+        if fig:
+            st.pyplot(fig)
+            
         if msg["role"] == "assistant":
-            with st.expander("📄 Copier"): st.code(msg["content"], language=None)
+            with st.expander("📄 Copier texte"): st.code(display_content, language=None)
 
-# --- INPUT (EN BAS) ---
-if st.session_state.prompt_trigger:
-    user_val = st.session_state.prompt_trigger
-    st.session_state.prompt_trigger = None
-else:
-    user_val = None
-
+# INPUT
+if st.session_state.prompt_trigger: user_val = st.session_state.prompt_trigger; st.session_state.prompt_trigger = None
+else: user_val = None
 ph_text = "Recherche Web Active 🌐..." if st.session_state.web_mode else "Posez votre question à PATBOT..."
 user_input = st.chat_input(ph_text)
-
 if user_val: user_input = user_val
 
 if user_input:
     st.session_state.dossiers[st.session_state.active].append({"role": "user", "content": user_input})
     st.rerun()
 
-# Réponse IA
+# REPONSE IA
 if chat_history and chat_history[-1]["role"] == "user":
     last_msg = chat_history[-1]["content"]
     with st.chat_message("assistant", avatar=bot_avatar):
@@ -269,18 +289,28 @@ if chat_history and chat_history[-1]["role"] == "user":
             try:
                 web_ctx = ""
                 if st.session_state.web_mode: web_ctx = search_web_duckduckgo(last_msg)
-                
                 doc_ctx = ""
                 if st.session_state.doc_context: doc_ctx = f"\nDOC:\n{st.session_state.doc_context}\n"
                 
-                ctx = f"ROLE: PATBOT. PROFIL: {st.session_state.last_p}. ANNEE: {st.session_state.last_a}. {web_ctx} {doc_ctx}\n"
+                # INSTRUCTION PROMPT POUR LE GRAPHIQUE
+                graph_instruction = "\nSI l'utilisateur demande explicitement un graphique ou une répartition visuelle, termine ta réponse par ce code EXACT : [[GRAPH:TYPE:Label1=Valeur1;Label2=Valeur2]]. Types dispos: PIE (camembert) ou BAR (bâtons). Exemple : [[GRAPH:PIE:Immo=60;Cash=40]]. Sinon, ne mets rien."
+                
+                ctx = f"ROLE: PATBOT. PROFIL: {st.session_state.last_p}. ANNEE: {st.session_state.last_a}. {web_ctx} {doc_ctx} {graph_instruction}\n"
                 for m in chat_history[:-1]: ctx += f"{m['role']}: {m['content']}\n"
                 ctx += f"user: {last_msg}\nassistant:"
                 
                 resp = model.generate_content(ctx).text
-                st.markdown(resp)
-                with st.expander("📄 Copier"): st.code(resp, language=None)
                 
+                # Affichage progressif
+                display_content = resp.split("[[GRAPH:")[0]
+                st.markdown(display_content)
+                
+                # Gestion Graphique
+                fig = parse_and_render_graph(resp)
+                if fig:
+                    st.pyplot(fig)
+                
+                with st.expander("📄 Copier"): st.code(display_content, language=None)
                 st.session_state.dossiers[st.session_state.active].append({"role": "assistant", "content": resp})
                 
                 if len(chat_history) == 2:
