@@ -1,47 +1,33 @@
 import streamlit as st
 import google.generativeai as genai
 
-# --- 1. CONFIGURATION GLOBALE ---
-st.set_page_config(
-    page_title="Cabinet Patrimonial & Fiscal",
-    page_icon="🏛️",
-    layout="wide"
-)
+# --- 1. CONFIGURATION DE LA PAGE ---
+st.set_page_config(page_title="Cabinet Patrimonial & Fiscal", page_icon="🏛️", layout="wide")
 
-# --- 2. GESTION INTELLIGENTE DES DOSSIERS ---
+# --- 2. GESTION DES DOSSIERS (SESSION) ---
 if "dossiers" not in st.session_state:
     st.session_state.dossiers = {"Dossier 1": []}
-
 if "active_dossier" not in st.session_state:
     st.session_state.active_dossier = "Dossier 1"
 
 def get_dossier_names():
     return list(st.session_state.dossiers.keys())
 
-# --- 3. BARRE LATÉRALE (LE BUREAU DU CGP) ---
+# --- 3. BARRE LATÉRALE (SIDEBAR) ---
 with st.sidebar:
-    # A. LE LOGO PRESTIGE (Doré sur fond sombre)
-    col_logo, col_title = st.columns([1, 3])
-    with col_logo:
-        # Icône "Colonne Grecque Dorée"
-        st.image("https://cdn-icons-png.flaticon.com/512/1995/1995515.png", width=60)
-    with col_title:
-        st.markdown(
-            """
-            <div style='margin-top: 10px;'>
-                <h3 style='margin:0; color: #D4AF37; font-size: 20px;'>CABINET</h3>
-                <p style='margin:0; color: #888; font-size: 12px;'>GESTION PRIVÉE & IA</p>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
+    # Logo et Titre
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        st.image("https://cdn-icons-png.flaticon.com/512/1995/1995515.png", width=50)
+    with col2:
+        st.markdown("<h3 style='margin:0; color:#D4AF37;'>CABINET IA</h3><p style='font-size:12px; color:grey;'>Gestion Privée</p>", unsafe_allow_html=True)
     
-    st.markdown("---")
+    st.divider()
 
-    # B. NAVIGATION & DOSSIERS
-    st.caption("📂 NAVIGATION CLIENTS")
+    # Navigation Dossiers
+    st.caption("🗂️ DOSSIERS CLIENTS")
     
-    # Bouton création
+    # Bouton Nouveau
     if st.button("➕ Nouveau Dossier", use_container_width=True):
         count = len(st.session_state.dossiers) + 1
         new_name = f"Dossier {count}"
@@ -50,65 +36,8 @@ with st.sidebar:
         st.rerun()
 
     # Liste des dossiers
-    dossier_list = get_dossier_names()
-    
-    # Sécurité anti-bug
-    if not dossier_list:
+    all_dossiers = get_dossier_names()
+    # Sécurité si liste vide
+    if not all_dossiers:
         st.session_state.dossiers = {"Dossier 1": []}
-        dossier_list = ["Dossier 1"]
-        st.session_state.active_dossier = "Dossier 1"
-    
-    if st.session_state.active_dossier not in dossier_list:
-        st.session_state.active_dossier = dossier_list[0]
-
-    # Sélecteur de dossier
-    selected_dossier = st.radio(
-        "Dossiers ouverts :",
-        dossier_list,
-        index=dossier_list.index(st.session_state.active_dossier),
-        label_visibility="collapsed"
-    )
-    
-    # C'est ici que tu avais l'erreur : J'ai bien vérifié la syntaxe
-    if selected_dossier != st.session_state.active_dossier:
-        st.session_state.active_dossier = selected_dossier
-        st.rerun()
-
-    # C. OUTILS DE GESTION (Renommer / Supprimer)
-    with st.expander(f"⚙️ Action : {st.session_state.active_dossier}", expanded=False):
-        
-        # Renommer
-        new_name_input = st.text_input("Renommer :", value=st.session_state.active_dossier)
-        if st.button("Valider Nom"):
-            if new_name_input and new_name_input != st.session_state.active_dossier:
-                st.session_state.dossiers[new_name_input] = st.session_state.dossiers.pop(st.session_state.active_dossier)
-                st.session_state.active_dossier = new_name_input
-                st.rerun()
-
-        # Supprimer
-        st.markdown("---")
-        if st.button("🗑️ Supprimer Dossier", type="primary"):
-            if len(dossier_list) > 1:
-                del st.session_state.dossiers[st.session_state.active_dossier]
-                st.session_state.active_dossier = list(st.session_state.dossiers.keys())[0]
-                st.rerun()
-            else:
-                st.error("Impossible de supprimer l'unique dossier.")
-
-    st.markdown("---")
-
-    # D. PARAMÈTRES EXPERTS
-    st.caption("🧠 PARAMÈTRES D'ANALYSE")
-    
-    profil = st.selectbox(
-        "Profil Client", 
-        ["Mode Général (Recherche)", "Particulier (IR)", "Chef d'entreprise (TNS)", "Société (IS)", "Non-résident"]
-    )
-    
-    annee_fiscale = st.selectbox("Loi de Finances", ["2026", "2025", "2024"])
-
-# --- 4. CONNEXION IA ---
-try:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=api_key)
-    model =
+        all_
