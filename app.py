@@ -1,63 +1,45 @@
 import streamlit as st
-import google.generativeai as genai
+import sys
+import subprocess
 
-# 1. Configuration de la page
-st.set_page_config(page_title="Expert Patrimoine IA", page_icon="🏛️")
+st.title("🛠️ Mode Réparation")
 
-st.title("🏛️ Copilot Gestion de Patrimoine")
-st.markdown("Posez vos questions sur la fiscalité, l'immobilier ou la succession.")
-
-# 2. Connexion à Google Gemini (via les secrets Streamlit)
+# 1. Vérification forcée de la version installée
 try:
-    api_key = st.secrets["GOOGLE_API_KEY"]
-    genai.configure(api_key=api_key)
+    import google.generativeai as genai
+    version = genai.__version__
 except:
-    st.error("Clé API manquante. Ajoutez-la dans les secrets Streamlit.")
+    version = "Non installé"
+
+st.write(f"**Version de l'outil Google installée :** `{version}`")
+st.info("Pour que ça marche, il FAUT que la version soit supérieure à 0.8.3")
+
+# 2. Test de la Clé API
+api_key = st.secrets.get("GOOGLE_API_KEY")
+if not api_key:
+    st.error("❌ Pas de clé trouvée dans les Secrets !")
     st.stop()
+else:
+    st.success(f"✅ Clé trouvée : {api_key[:5]}...")
 
-# 3. Définition du Cerveau (Le Modèle)
-model = genai.GenerativeModel('gemini-1.5-flash')
-
-# 4. Historique de chat (pour qu'il se souvienne de la conversation)
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# Afficher les anciens messages
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-# 5. Zone de saisie utilisateur
-if prompt := st.chat_input("Ex: Quelle est la fiscalité du LMNP en 2026 ?"):
-    # Afficher la question de l'utilisateur
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # 6. Génération de la réponse
-    with st.chat_message("assistant"):
-        with st.spinner("Analyse juridique en cours..."):
-            # Le "System Prompt" caché qui force le mode Expert
-            consigne_expert = """
-            Tu es un expert senior en Gestion de Patrimoine (CGP) en France.
-            Tes réponses doivent être :
-            1. Juridiquement précises (Droit français uniquement).
-            2. Pédagogiques mais techniques.
-            3. Prudentes (rappelle toujours que cela ne remplace pas un avis notarié).
+# 3. Demander à Google quels modèles sont dispos pour TOI
+if st.button("Lancer le Test de Connexion Google"):
+    genai.configure(api_key=api_key)
+    try:
+        st.write("📞 Appel à Google en cours...")
+        modeles = genai.list_models()
+        
+        found_models = []
+        for m in modeles:
+            if 'generateContent' in m.supported_generation_methods:
+                found_models.append(m.name)
+        
+        if found_models:
+            st.success(f"✅ Victoire ! Google nous répond. Voici les modèles disponibles pour ta clé :")
+            st.json(found_models)
+            st.write("Copie le nom d'un modèle ci-dessus (ex: `models/gemini-1.5-flash`) pour la suite.")
+        else:
+            st.warning("⚠️ Google répond, mais ne liste aucun modèle de texte. C'est bizarre.")
             
-            Si la question concerne un calcul, explique la méthode.
-            """
-            
-            try:
-                # On envoie la consigne + l'historique + la nouvelle question
-                full_prompt = consigne_expert + "\n\nHistorique de conversation:\n" 
-                for msg in st.session_state.messages:
-                    full_prompt += f"{msg['role']}: {msg['content']}\n"
-                
-                response = model.generate_content(full_prompt)
-                st.markdown(response.text)
-                
-                # Sauvegarder la réponse
-                st.session_state.messages.append({"role": "assistant", "content": response.text})
-            except Exception as e:
-                st.error(f"Erreur de connexion : {e}")
+    except Exception as e:
+        st.error(f"❌ Erreur critique : {e}")
