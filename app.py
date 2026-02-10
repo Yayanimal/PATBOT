@@ -132,10 +132,10 @@ def safe_generate_content(model, prompt):
             if "429" in str(e) or "503" in str(e):
                 if attempt < max_retries - 1:
                     time.sleep(wait_time)
-                    wait_time *= 2 # Backoff exponentiel
+                    wait_time *= 2 # Backoff exponentiel (5s, 10s, 20s)
                     continue
                 else:
-                    return "⚠️ **PATBOT réfléchit trop vite.** Le serveur est saturé. Merci d'attendre 1 minute."
+                    return "⚠️ **PATBOT réfléchit trop vite.** Le serveur est saturé (Quota atteint). Merci d'attendre 1 minute avant de relancer."
             # Si c'est l'erreur 404 (Modèle introuvable), on le signale
             elif "404" in str(e):
                 return "⚠️ Erreur technique : Le modèle IA spécifié n'est pas disponible. Vérifiez la clé API."
@@ -167,7 +167,7 @@ def create_pdf(name, history, profil, annee):
 if "GOOGLE_API_KEY" not in st.secrets: st.error("Clé API manquante"); st.stop()
 try: 
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    # CORRECTION ICI : On utilise un nom d'alias plus stable
+    # CORRECTION ICI : Retour à l'alias stable qui fonctionnait
     model = genai.GenerativeModel("gemini-flash-latest") 
 except: st.error("Erreur connexion IA"); st.stop()
 
@@ -309,6 +309,7 @@ if chat_history and chat_history[-1]["role"] == "user":
             for m in chat_history[:-1]: ctx += f"{m['role']}: {m['content']}\n"
             ctx += f"user: {last_msg}\nassistant:"
             
+            # Appel Sécurisé avec Retry
             resp = safe_generate_content(model, ctx)
             
             display_content = resp.split("[[GRAPH:")[0]
