@@ -1,145 +1,79 @@
 import streamlit as st
 import google.generativeai as genai
+from fpdf import FPDF
+import base64
 
-# --- 1. CONFIGURATION DE LA PAGE & IDENTITÉ ---
-st.set_page_config(page_title="Cabinet Patrimoine IA", page_icon="🏛️", layout="wide")
+# --- 1. CONFIGURATION DE LA PAGE ---
+st.set_page_config(
+    page_title="PATBOT | Gestion Privée",
+    page_icon="🏛️",
+    layout="wide"
+)
 
-# URL du Logo (C'est ici que tu peux changer l'image si tu en as une perso)
-# J'ai choisi un icône "Banque/Institution" doré très propre qui passe sur fond sombre.
-LOGO_URL = "https://cdn-icons-png.flaticon.com/512/2600/2600219.png"
+# --- 2. TON LOGO (Lien GitHub Raw reconstitué) ---
+# C'est le lien direct vers ton image blanche pour le mode sombre
+LOGO_URL = "https://raw.githubusercontent.com/yayanimal/PATBOT/main/logo_blanc.jpg"
 
-# --- 2. VÉRIFICATION CLÉ API ---
+# --- 3. FONCTION DE GÉNÉRATION PDF (Rapport Client) ---
+def create_pdf(dossier_name, chat_history, profil, annee):
+    class PDF(FPDF):
+        def header(self):
+            self.set_font('Arial', 'B', 12)
+            self.set_text_color(212, 175, 55) # Couleur Or
+            self.cell(0, 10, 'CABINET PATBOT - GESTION PRIVÉE', 0, 1, 'C')
+            self.line(10, 20, 200, 20)
+            self.ln(10)
+
+        def footer(self):
+            self.set_y(-15)
+            self.set_font('Arial', 'I', 8)
+            self.set_text_color(128)
+            self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+
+    pdf = PDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    
+    # En-tête du dossier
+    pdf.set_font("Arial", 'B', 16)
+    pdf.set_text_color(0, 0, 0)
+    pdf.cell(0, 10, f"Dossier : {dossier_name}", 0, 1, 'L')
+    
+    pdf.set_font("Arial", 'I', 10)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 10, f"Profil : {profil} | Loi de Finances {annee}", 0, 1, 'L')
+    pdf.ln(10)
+    
+    # Contenu de la conversation
+    for message in chat_history:
+        role = "CLIENT" if message["role"] == "user" else "EXPERT PATBOT"
+        
+        pdf.set_font("Arial", 'B', 11)
+        if role == "EXPERT PATBOT":
+            pdf.set_text_color(212, 175, 55) # Or pour le bot
+        else:
+            pdf.set_text_color(50, 50, 50) # Gris pour le client
+            
+        pdf.cell(0, 10, role, 0, 1)
+        
+        pdf.set_font("Arial", '', 10)
+        pdf.set_text_color(0, 0, 0)
+        
+        # Nettoyage des caractères spéciaux (Emoji support limité en PDF standard)
+        text_content = message["content"].encode('latin-1', 'replace').decode('latin-1')
+        pdf.multi_cell(0, 6, text_content)
+        pdf.ln(5)
+        
+    return pdf.output(dest='S').encode('latin-1')
+
+# --- 4. CONNEXION IA (Modèle Flash Latest) ---
 if "GOOGLE_API_KEY" not in st.secrets:
-    st.error("❌ CLÉ MANQUANTE : Ajoutez GOOGLE_API_KEY dans les Secrets.")
+    st.error("❌ La clé API est manquante dans les Secrets.")
     st.stop()
 
 try:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+    # Le modèle qui fonctionne sur ton compte :
     model = genai.GenerativeModel("gemini-flash-latest")
 except Exception as e:
-    st.error(f"Erreur technique : {e}")
-    st.stop()
-
-# --- 3. PROFILS EXPERTS ---
-PROFILS_DETAILS = {
-    "🔍 Mode Général (Recherche)": 
-        "Tu es une encyclopédie fiscale. Donne des définitions et des grands principes.",
-    "👤 Jeune Actif / Cadre": 
-        "Phase d'accumulation. Priorités : Épargne (PEA, AV), Résidence Principale, Défiscalisation (PER).",
-    "👨‍👩‍👧‍👦 Famille & Patrimoine": 
-        "Priorités : Protection du conjoint, Transmission, Optimisation successorale.",
-    "👔 Chef d'Entreprise (TNS)": 
-        "Priorités : Rémunération vs Dividendes, Holding, Pacte Dutreil, Cession, Retraite Madelin.",
-    "🏖️ Retraité": 
-        "Priorités : Compléments de revenus, Protection inflation, Succession, LMNP.",
-    "🏢 Investisseur Immo": 
-        "Priorités : SCI (IS/IR), LMNP Réel, Déficit Foncier, Cash-flow.",
-    "🌍 Non-Résident": 
-        "Priorités : Convention fiscale, Retenue à la source, IFI."
-}
-
-# --- 4. GESTION DOSSIERS ---
-if "dossiers" not in st.session_state:
-    st.session_state.dossiers = {"Dossier 1": []}
-if "active_dossier" not in st.session_state:
-    st.session_state.active_dossier = "Dossier 1"
-
-def get_dossier_names():
-    return list(st.session_state.dossiers.keys())
-
-# --- 5. BARRE LATÉRALE (SIDEBAR) AVEC LOGO ---
-with st.sidebar:
-    # A. LE LOGO MARQUE (En haut à gauche)
-    col_logo, col_text = st.columns([1, 3])
-    with col_logo:
-        st.image(LOGO_URL, width=70)
-    with col_text:
-        st.markdown("""
-            <h3 style='color: #D4AF37; margin-bottom: 0;'>CABINET IA</h3>
-            <p style='font-size: 12px; color: grey; margin-top: -5px;'>Gestion Privée</p>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # B. NAVIGATION
-    st.caption("🗂️ DOSSIERS CLIENTS")
-    if st.button("➕ Nouveau Dossier", use_container_width=True):
-        count = len(st.session_state.dossiers) + 1
-        new_name = f"Dossier {count}"
-        st.session_state.dossiers[new_name] = []
-        st.session_state.active_dossier = new_name
-        st.rerun()
-
-    dossiers_dispos = get_dossier_names()
-    if st.session_state.active_dossier not in dossiers_dispos:
-        st.session_state.active_dossier = dossiers_dispos[0]
-
-    choix = st.radio("Sélection", dossiers_dispos, index=dossiers_dispos.index(st.session_state.active_dossier), label_visibility="collapsed")
-    if choix != st.session_state.active_dossier:
-        st.session_state.active_dossier = choix
-        st.rerun()
-
-    # C. PARAMÈTRES
-    with st.expander("⚙️ Options"):
-        new_name = st.text_input("Renommer :", value=st.session_state.active_dossier)
-        if st.button("Valider"):
-            if new_name and new_name != st.session_state.active_dossier:
-                st.session_state.dossiers[new_name] = st.session_state.dossiers.pop(st.session_state.active_dossier)
-                st.session_state.active_dossier = new_name
-                st.rerun()
-        if st.button("🗑️ Supprimer", type="primary"):
-            if len(dossiers_dispos) > 1:
-                del st.session_state.dossiers[st.session_state.active_dossier]
-                st.session_state.active_dossier = list(st.session_state.dossiers.keys())[0]
-                st.rerun()
-
-    st.markdown("---")
-    st.caption("⚖️ CONTEXTE")
-    choix_profil = st.selectbox("Profil", list(PROFILS_DETAILS.keys()))
-    annee = st.selectbox("Référentiel", ["2026", "2025", "2024"])
-
-# --- 6. CERVEAU IA ---
-system_instruction = f"""
-RÔLE : Expert Senior en Gestion de Patrimoine.
-CONTEXTE : {annee}. Profil : {choix_profil}.
-RÈGLES :
-1. Sources : CGI et BOFiP.
-2. Structure : Introduction juridique > Calculs/Chiffres > Conseil Stratégique.
-3. Sécurité : Rappelle le caractère informatif.
-"""
-
-# --- 7. ZONE DE CHAT (AVEC AVATAR) ---
-st.title(f"📂 {st.session_state.active_dossier}")
-st.info(f"**Expertise en cours :** {choix_profil} ({annee})")
-
-chat_actuel = st.session_state.dossiers[st.session_state.active_dossier]
-
-# Affichage des messages passés
-for msg in chat_actuel:
-    # Si c'est l'assistant, on met le LOGO. Si c'est l'utilisateur, on laisse par défaut (ou on met None)
-    avatar_icon = LOGO_URL if msg["role"] == "assistant" else None
-    
-    with st.chat_message(msg["role"], avatar=avatar_icon):
-        st.markdown(msg["content"])
-
-# Nouvelle question
-if prompt := st.chat_input("Votre question..."):
-    # 1. User
-    st.session_state.dossiers[st.session_state.active_dossier].append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # 2. Assistant (Avec Avatar Logo)
-    with st.chat_message("assistant", avatar=LOGO_URL):
-        with st.spinner("Analyse en cours..."):
-            try:
-                history_text = system_instruction + "\n\n"
-                for m in chat_actuel:
-                    history_text += f"{m['role'].upper()}: {m['content']}\n"
-                history_text += f"USER: {prompt}\nASSISTANT:"
-                
-                response = model.generate_content(history_text)
-                st.markdown(response.text)
-                st.session_state.dossiers[st.session_state.active_dossier].append({"role": "assistant", "content": response.text})
-            except Exception as e:
-                st.error(f"Erreur : {e}")
+    st.error(f"Erreur de connexion Google : {e}")
