@@ -8,7 +8,7 @@ import random
 import matplotlib.pyplot as plt
 import time
 
-# Gestion import Search
+# Gestion import Search (Anti-crash si module absent)
 try: from duckduckgo_search import DDGS
 except ImportError: DDGS = None
 
@@ -76,13 +76,13 @@ def search_web_duckduckgo(query):
             return web_context
     except Exception as e: return f"Erreur Web: {e}"
 
-# --- MOTEUR GRAPHIQUE V35 (ROBUSTE) ---
+# --- MOTEUR GRAPHIQUE (PIE, DONUT, BAR, LINE) ---
 def parse_and_render_graph(text):
     if "[[GRAPH:" not in text: return None
     try:
         tag = text.split("[[GRAPH:")[1].split("]]")[0]
         graph_type, data_str = tag.split(":", 1)
-        graph_type = graph_type.upper().strip() # Sécurisation majuscules
+        graph_type = graph_type.upper().strip()
         
         data = {}
         for item in data_str.split(";"):
@@ -103,18 +103,13 @@ def parse_and_render_graph(text):
         if graph_type == "PIE":
             ax.pie(sizes, labels=labels, autopct='%1.0f%%', startangle=90, colors=colors)
             ax.axis('equal')
-
         elif graph_type == "DONUT":
-            # Le Donut est un Pie avec un trou (width=0.4)
             ax.pie(sizes, labels=labels, autopct='%1.0f%%', startangle=90, colors=colors, wedgeprops=dict(width=0.4, edgecolor='none'))
-            # On ajoute un cercle blanc au centre pour l'effet si besoin, mais width suffit
             ax.axis('equal')
-
         elif graph_type == "BAR":
             ax.bar(labels, sizes, color='#D4AF37')
             ax.tick_params(colors='white', labelsize=8)
             ax.grid(axis='y', linestyle='--', alpha=0.3)
-
         elif graph_type == "LINE":
             ax.plot(labels, sizes, marker='o', linestyle='-', color='#D4AF37', linewidth=2)
             ax.fill_between(labels, sizes, color='#D4AF37', alpha=0.1)
@@ -125,22 +120,25 @@ def parse_and_render_graph(text):
         return fig
     except Exception as e: return None
 
-# --- ANTI-CRASH V35 (PATIENCE ACCRUE) ---
+# --- GENERATION SECURISEE (RETRY SI QUOTA) ---
 def safe_generate_content(model, prompt):
     max_retries = 3
-    wait_time = 5 # Secondes
-    
+    wait_time = 5
     for attempt in range(max_retries):
         try:
             return model.generate_content(prompt).text
         except Exception as e:
-            if "429" in str(e): # Erreur Quota
+            # Gestion erreur Quota (429) ou Surcharge (503)
+            if "429" in str(e) or "503" in str(e):
                 if attempt < max_retries - 1:
                     time.sleep(wait_time)
-                    wait_time *= 2 # On double le temps d'attente (5s -> 10s -> 20s)
+                    wait_time *= 2 # Backoff exponentiel
                     continue
                 else:
-                    return "⚠️ **Le serveur IA est surchargé (Quota Google).** Merci de patienter une minute avant de réessayer."
+                    return "⚠️ **PATBOT réfléchit trop vite.** Le serveur est saturé. Merci d'attendre 1 minute."
+            # Si c'est l'erreur 404 (Modèle introuvable), on le signale
+            elif "404" in str(e):
+                return "⚠️ Erreur technique : Le modèle IA spécifié n'est pas disponible. Vérifiez la clé API."
             else:
                 return f"Erreur technique : {e}"
 
@@ -169,8 +167,8 @@ def create_pdf(name, history, profil, annee):
 if "GOOGLE_API_KEY" not in st.secrets: st.error("Clé API manquante"); st.stop()
 try: 
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    # Utilisation du modèle 'flash' standard, souvent plus stable
-    model = genai.GenerativeModel("gemini-1.5-flash") 
+    # CORRECTION ICI : On utilise un nom d'alias plus stable
+    model = genai.GenerativeModel("gemini-flash-latest") 
 except: st.error("Erreur connexion IA"); st.stop()
 
 if "dossiers" not in st.session_state: st.session_state.dossiers = {"Nouvelle Discussion": []}
@@ -305,14 +303,12 @@ if chat_history and chat_history[-1]["role"] == "user":
             doc_ctx = ""
             if st.session_state.doc_context: doc_ctx = f"\nDOC:\n{st.session_state.doc_context}\n"
             
-            # Instruction Graphique Renforcée
             graph_instruction = "\nSI demande graphique: [[GRAPH:TYPE:Label1=Val1;Label2=Val2]]. TYPE=PIE|DONUT|BAR|LINE. Exemple DONUT: [[GRAPH:DONUT:Immo=60;Cash=40]]. Sinon rien."
             
             ctx = f"ROLE: PATBOT. PROFIL: {st.session_state.last_p}. ANNEE: {st.session_state.last_a}. {web_ctx} {doc_ctx} {graph_instruction}\n"
             for m in chat_history[:-1]: ctx += f"{m['role']}: {m['content']}\n"
             ctx += f"user: {last_msg}\nassistant:"
             
-            # Appel Sécurisé avec Retry
             resp = safe_generate_content(model, ctx)
             
             display_content = resp.split("[[GRAPH:")[0]
