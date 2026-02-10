@@ -24,7 +24,7 @@ generation_config = {
 
 try:
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash", 
+        model_name="gemini-flash-latest", 
         generation_config=generation_config
     )
 except Exception as e:
