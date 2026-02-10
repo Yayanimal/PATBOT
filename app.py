@@ -4,7 +4,6 @@ from fpdf import FPDF
 import PyPDF2
 import os
 import base64
-import io
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
@@ -14,7 +13,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# FICHIERS IMAGES (DOIVENT ÊTRE SUR GITHUB)
 FILE_NOIR = "LOGONOIR.png"
 FILE_BLANC = "LOGOBLANC.png"
 
@@ -24,10 +22,23 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
+    
+    /* Titre Sidebar */
     .sidebar-title {
         font-size: 20px; font-weight: 600; text-align: center; margin-top: 10px; color: #D4AF37;
     }
-    .stFileUploader { padding-top: 10px; }
+    
+    /* Zone de renommage plus jolie */
+    div[data-testid="stTextInput"] input {
+        border-radius: 10px;
+    }
+    
+    /* Style pour l'expander "📎" proche du chat */
+    .streamlit-expanderHeader {
+        background-color: transparent;
+        font-size: 14px;
+        color: #888;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -88,13 +99,9 @@ def create_pdf(name, history, profil, annee):
         pdf.cell(0, 8, role, 0, 1)
         pdf.set_font("Arial", '', 10)
         pdf.set_text_color(0)
-        # Gestion encodage caractères spéciaux
         txt = msg["content"].encode('latin-1', 'replace').decode('latin-1')
         pdf.multi_cell(0, 5, txt); pdf.ln(5)
-    
-    # --- CORRECTION ICI ---
-    # fpdf2 retourne directement des bytes, plus besoin de 'dest=S' ni d'encode
-    return bytes(pdf.output()) 
+    return bytes(pdf.output())
 
 # --- 3. INIT IA & SESSION ---
 if "GOOGLE_API_KEY" not in st.secrets: st.error("Clé API manquante"); st.stop()
@@ -108,11 +115,12 @@ if "active" not in st.session_state: st.session_state.active = "Nouveau Chat"
 if "prompt_trigger" not in st.session_state: st.session_state.prompt_trigger = None
 if "doc_context" not in st.session_state: st.session_state.doc_context = ""
 
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR (NAVIGATION & RENOMMAGE) ---
 with st.sidebar:
     render_dynamic_logo()
     st.markdown('<div class="sidebar-title">PATBOT</div>', unsafe_allow_html=True)
     
+    # Bouton Nouveau Chat
     if st.button("＋ Nouvelle discussion", type="primary", use_container_width=True):
         idx = len(st.session_state.dossiers) + 1
         name = f"Discussion {idx}"
@@ -124,36 +132,36 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # UPLOAD FICHIER
-    with st.expander("📂 Analyser un document", expanded=True):
-        uploaded_file = st.file_uploader("Glissez un PDF (Bilan, Avis d'impôt...)", type="pdf")
-        if uploaded_file is not None:
-            text = extract_text_from_pdf(uploaded_file)
-            st.session_state.doc_context = text
-            st.success("✅ Document lu !")
-        else:
-            st.session_state.doc_context = ""
-
-    st.markdown("---")
-    st.caption("HISTORIQUE")
+    # LISTE DES CHATS
+    st.caption("MES DISCUSSIONS")
     chats = list(st.session_state.dossiers.keys())[::-1]
     if st.session_state.active not in st.session_state.dossiers: st.session_state.active = chats[0]
     
-    sel = st.radio("List", chats, index=chats.index(st.session_state.active), label_visibility="collapsed")
+    sel = st.radio("Sélecteur", chats, index=chats.index(st.session_state.active), label_visibility="collapsed")
     if sel != st.session_state.active:
         st.session_state.active = sel
         st.rerun()
+    
+    # ZONE DE RENOMMAGE (Visible directement)
+    st.markdown("---")
+    st.caption("ÉDITION")
+    new_name = st.text_input("✎ Renommer la discussion :", value=st.session_state.active)
+    if new_name and new_name != st.session_state.active:
+        # On renomme la clé du dictionnaire
+        st.session_state.dossiers[new_name] = st.session_state.dossiers.pop(st.session_state.active)
+        st.session_state.active = new_name
+        st.rerun()
 
     st.markdown("---")
-    with st.expander("⚙️ Options & Export"):
+    # Options avancées
+    with st.expander("⚙️ Profil & PDF"):
         p = st.selectbox("Profil", ["Général", "Chef d'Entreprise", "Retraité", "Investisseur Immo", "Famille", "Non-Résident"])
         a = st.selectbox("Année", ["2026", "2025"])
         st.session_state.last_p = p; st.session_state.last_a = a
         
-        if st.button("🗑️ Effacer"): 
+        if st.button("🗑️ Supprimer ce chat"): 
             if len(chats) > 1: del st.session_state.dossiers[st.session_state.active]; st.session_state.active = list(st.session_state.dossiers.keys())[0]; st.rerun()
         
-        # BOUTON PDF SÉCURISÉ
         if st.session_state.dossiers[st.session_state.active]:
             try:
                 pdf_data = create_pdf(st.session_state.active, st.session_state.dossiers[st.session_state.active], p, a)
@@ -163,33 +171,25 @@ with st.sidebar:
 
 # --- 5. ZONE PRINCIPALE ---
 chat_history = st.session_state.dossiers[st.session_state.active]
+bot_avatar = FILE_BLANC if os.path.exists(FILE_BLANC) else "🤖"
 
-# ECRAN ACCUEIL
+# ECRAN ACCUEIL (Si vide)
 if not chat_history:
     if os.path.exists(FILE_BLANC): st.image(FILE_BLANC, width=100)
-    st.markdown("<h1 style='text-align: center;'>Expertise Patrimoniale IA</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align: center;'>{st.session_state.active}</h1>", unsafe_allow_html=True)
+    if st.session_state.doc_context: st.info("✅ Document en mémoire.")
     
-    if st.session_state.doc_context:
-        st.info("💡 Document chargé en mémoire. Posez vos questions dessus !")
-
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🏢 Stratégie Holding", use_container_width=True):
             st.session_state.prompt_trigger = "Quelle est la meilleure stratégie Holding en 2026 ?"
             st.rerun()
-        if st.button("📄 Synthèse du Document", use_container_width=True, disabled=(not st.session_state.doc_context)):
-            st.session_state.prompt_trigger = "Fais-moi une synthèse structurée du document téléchargé (Chiffres clés, points d'attention)."
-            st.rerun()
     with col2:
-        if st.button("👨‍👩‍👧‍👦 Succession", use_container_width=True):
-            st.session_state.prompt_trigger = "Explique le démembrement de propriété."
-            st.rerun()
-        if st.button("💰 Analyse Financière", use_container_width=True, disabled=(not st.session_state.doc_context)):
-            st.session_state.prompt_trigger = "Analyse la santé financière à partir de ce document et propose des optimisations."
+        if st.button("💰 Synthèse Document", use_container_width=True, disabled=(not st.session_state.doc_context)):
+            st.session_state.prompt_trigger = "Fais-moi une synthèse chiffrée du document."
             st.rerun()
 
 # AFFICHAGE CHAT
-bot_avatar = FILE_BLANC if os.path.exists(FILE_BLANC) else "🤖"
 for msg in chat_history:
     av = bot_avatar if msg["role"] == "assistant" else None
     with st.chat_message(msg["role"], avatar=av):
@@ -197,8 +197,23 @@ for msg in chat_history:
         if msg["role"] == "assistant":
             with st.expander("📄 Copier"): st.code(msg["content"], language=None)
 
+# --- ZONE D'UPLOAD DÉPLACÉE (JUSTE AVANT LE CHAT INPUT) ---
+st.markdown("---") # Séparateur visuel
+# C'est ici que ça se passe : Un expander qui colle à la barre de saisie
+with st.expander("📎 Joindre un document PDF (Contexte)", expanded=False):
+    uploaded_file = st.file_uploader("Glissez votre fichier ici", type="pdf", label_visibility="collapsed")
+    if uploaded_file is not None:
+        text = extract_text_from_pdf(uploaded_file)
+        if text != st.session_state.doc_context:
+            st.session_state.doc_context = text
+            st.success(f"✅ Document analysé : {uploaded_file.name}")
+    else:
+        # Si on enlève le fichier, on vide la mémoire
+        if st.session_state.doc_context:
+            st.session_state.doc_context = ""
+
 # INPUT USER
-user_input = st.chat_input("Votre question...")
+user_input = st.chat_input("Posez votre question à PATBOT...")
 if st.session_state.prompt_trigger:
     user_input = st.session_state.prompt_trigger
     st.session_state.prompt_trigger = None
@@ -212,7 +227,7 @@ if user_input:
             try:
                 doc_prompt = ""
                 if st.session_state.doc_context:
-                    doc_prompt = f"\n\n--- DOCUMENT CLIENT ---\n{st.session_state.doc_context}\n--- FIN DOC ---\n"
+                    doc_prompt = f"\n\n--- DOCUMENT CONTEXTE ---\n{st.session_state.doc_context}\n--- FIN DOC ---\n"
 
                 ctx = f"ROLE: PATBOT, Expert Patrimoine. ANNEE: {st.session_state.last_a}. PROFIL: {st.session_state.last_p}. STYLE: Pro.{doc_prompt}\n"
                 for m in st.session_state.dossiers[st.session_state.active]: ctx += f"{m['role']}: {m['content']}\n"
