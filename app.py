@@ -4,7 +4,7 @@ from fpdf import FPDF
 import os
 import base64
 
-# --- 1. CONFIGURATION DE LA PAGE (STYLE ÉPURÉ) ---
+# --- 1. CONFIGURATION ---
 st.set_page_config(
     page_title="PATBOT",
     page_icon="🤖",
@@ -12,76 +12,84 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CSS PERSONNALISÉ POUR LE LOOK "CHATGPT" ---
+# Noms des fichiers images (Doivent être sur GitHub)
+FILE_NOIR = "LOGONOIR.png"
+FILE_BLANC = "LOGOBLANC.png"
+
+# --- CSS MODERNE (STYLE CHATGPT) ---
 st.markdown("""
 <style>
-    /* Masquer le menu hamburger standard et le footer pour faire plus "App" */
+    /* Masquer menu et footer Streamlit */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Style du titre de la sidebar */
+    /* Style Titre Sidebar */
     .sidebar-title {
-        font-size: 24px;
-        font-weight: 700;
+        font-size: 20px;
+        font-weight: 600;
         text-align: center;
-        margin-bottom: 5px;
-        background: -webkit-linear-gradient(45deg, #D4AF37, #F0E68C);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        margin-top: 10px;
+        color: #D4AF37; /* Or */
     }
-    .sidebar-subtitle {
-        font-size: 12px;
+    
+    /* Style de l'écran d'accueil (Welcome Screen) */
+    .welcome-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin-top: 50px;
         text-align: center;
-        color: grey;
+    }
+    .welcome-logo {
+        width: 80px;
         margin-bottom: 20px;
+        opacity: 0.8;
+    }
+    .welcome-text {
+        font-size: 24px;
+        font-weight: 600;
+        margin-bottom: 10px;
+    }
+    .suggestion-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        max-width: 600px;
+        margin: 0 auto;
+        margin-top: 30px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# NOMS DES FICHIERS (MAJUSCULES)
-FILE_NOIR = "LOGONOIR.png"
-FILE_BLANC = "LOGOBLANC.png"
-
-# --- 2. LOGO DYNAMIQUE ---
+# --- 2. FONCTIONS UTILITAIRES ---
 def render_dynamic_logo():
-    if not os.path.exists(FILE_NOIR) or not os.path.exists(FILE_BLANC):
-        st.warning("⚠️ Images manquantes.")
-        return
-
-    with open(FILE_NOIR, "rb") as f: b64_noir = base64.b64encode(f.read()).decode()
-    with open(FILE_BLANC, "rb") as f: b64_blanc = base64.b64encode(f.read()).decode()
-
-    css = f"""
+    """Affiche le logo adapté au thème dans la sidebar"""
+    if not os.path.exists(FILE_NOIR) or not os.path.exists(FILE_BLANC): return
+    with open(FILE_NOIR, "rb") as f: b64_n = base64.b64encode(f.read()).decode()
+    with open(FILE_BLANC, "rb") as f: b64_b = base64.b64encode(f.read()).decode()
+    
+    st.markdown(f"""
     <style>
-    .logo-container {{ text-align: center; margin-bottom: 10px; }}
-    .logo-container img {{ max-width: 120px; }}
-    .logo-noir {{ display: block; }} .logo-blanc {{ display: none; }}
-    @media (prefers-color-scheme: dark) {{
-        .logo-noir {{ display: none; }} .logo-blanc {{ display: block; }}
-    }}
+    .ln {{display:block; margin: 0 auto;}} .lb {{display:none; margin: 0 auto;}}
+    @media (prefers-color-scheme: dark) {{ .ln {{display:none;}} .lb {{display:block;}} }}
     </style>
-    <div class="logo-container">
-        <img src="data:image/png;base64,{b64_noir}" class="logo-noir">
-        <img src="data:image/png;base64,{b64_blanc}" class="logo-blanc">
+    <div style="text-align:center;">
+        <img src="data:image/png;base64,{b64_n}" class="ln" width="130">
+        <img src="data:image/png;base64,{b64_b}" class="lb" width="130">
     </div>
-    """
-    st.markdown(css, unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
-# --- 3. GÉNÉRATION PDF ---
-def create_pdf(dossier_name, chat_history, profil, annee):
+def create_pdf(name, history, profil, annee):
     class PDF(FPDF):
         def header(self):
-            if os.path.exists(FILE_NOIR):
-                self.image(FILE_NOIR, 10, 8, 25)
-                self.set_xy(40, 10)
-            
+            if os.path.exists(FILE_NOIR): self.image(FILE_NOIR, 10, 8, 25)
             self.set_font('Arial', 'B', 12)
             self.set_text_color(212, 175, 55)
-            self.cell(0, 10, 'PATBOT - INTELLIGENCE PATRIMONIALE', 0, 1, 'L')
+            self.cell(0, 10, '   ' * 15 + 'PATBOT - EXPERT IA', 0, 1, 'L')
             self.line(10, 25, 200, 25)
             self.ln(20)
-
         def footer(self):
             self.set_y(-15)
             self.set_font('Arial', 'I', 8)
@@ -91,151 +99,141 @@ def create_pdf(dossier_name, chat_history, profil, annee):
     pdf = PDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
-    
-    # Titres
     pdf.set_font("Arial", 'B', 16)
-    pdf.set_text_color(0, 0, 0)
-    pdf.cell(0, 10, f"{dossier_name}", 0, 1, 'L')
+    pdf.cell(0, 10, f"{name}", 0, 1)
     pdf.set_font("Arial", 'I', 10)
-    pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 10, f"Profil : {profil} | Réf : {annee}", 0, 1, 'L')
-    pdf.ln(10)
-    
-    # Chat
-    for message in chat_history:
-        role = "UTILISATEUR" if message["role"] == "user" else "PATBOT"
+    pdf.set_text_color(100)
+    pdf.cell(0, 10, f"Profil: {profil} | Année: {annee}", 0, 1); pdf.ln(10)
+
+    for msg in history:
+        role = "MOI" if msg["role"] == "user" else "PATBOT"
         pdf.set_font("Arial", 'B', 10)
-        pdf.set_text_color(212, 175, 55) if role == "PATBOT" else pdf.set_text_color(50, 50, 50)
+        pdf.set_text_color(212, 175, 55) if role == "PATBOT" else pdf.set_text_color(50)
         pdf.cell(0, 8, role, 0, 1)
-        
         pdf.set_font("Arial", '', 10)
-        pdf.set_text_color(0, 0, 0)
-        try:
-            text = message["content"].encode('latin-1', 'replace').decode('latin-1')
-        except:
-            text = message["content"]
-        pdf.multi_cell(0, 5, text)
-        pdf.ln(5)
-        
+        pdf.set_text_color(0)
+        txt = msg["content"].encode('latin-1', 'replace').decode('latin-1')
+        pdf.multi_cell(0, 5, txt); pdf.ln(5)
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 4. IA ---
-if "GOOGLE_API_KEY" not in st.secrets:
-    st.error("Clé API manquante.")
-    st.stop()
+# --- 3. INIT IA & SESSION ---
+if "GOOGLE_API_KEY" not in st.secrets: st.error("Clé API manquante"); st.stop()
 try:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     model = genai.GenerativeModel("gemini-flash-latest")
-except Exception as e:
-    st.error(f"Erreur : {e}")
-    st.stop()
+except: st.error("Erreur connexion IA"); st.stop()
 
-# --- 5. DONNÉES ---
-PROFILS = {
-    "🔍 Général": "Encyclopédie fiscale.",
-    "👤 Jeune Actif": "PEA, RP, PER.",
-    "👨‍👩‍👧‍👦 Famille": "Transmission, Protection.",
-    "👔 Chef d'Entreprise": "Holding, Dutreil.",
-    "🏖️ Retraité": "LMNP, Assurance Vie.",
-    "🏢 Investisseur": "SCI, Déficit Foncier.",
-    "🌍 Non-Résident": "International."
-}
-if "dossiers" not in st.session_state: st.session_state.dossiers = {"Conversation 1": []}
-if "active" not in st.session_state: st.session_state.active = "Conversation 1"
+if "dossiers" not in st.session_state: st.session_state.dossiers = {"Nouveau Chat": []}
+if "active" not in st.session_state: st.session_state.active = "Nouveau Chat"
+# Variable pour gérer les clics sur les suggestions
+if "prompt_trigger" not in st.session_state: st.session_state.prompt_trigger = None
 
-# --- 6. SIDEBAR STYLE CHATGPT ---
+# --- 4. SIDEBAR ---
 with st.sidebar:
-    # A. En-tête Centré
     render_dynamic_logo()
     st.markdown('<div class="sidebar-title">PATBOT</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sidebar-subtitle">Assistant Patrimonial IA</div>', unsafe_allow_html=True)
     
-    # B. Bouton Nouveau Chat (Gros bouton primaire)
-    if st.button("＋ Nouvelle conversation", type="primary", use_container_width=True):
+    if st.button("＋ Nouvelle discussion", type="primary", use_container_width=True):
         idx = len(st.session_state.dossiers) + 1
-        name = f"Conversation {idx}"
+        name = f"Discussion {idx}"
         st.session_state.dossiers[name] = []
         st.session_state.active = name
+        st.session_state.prompt_trigger = None
         st.rerun()
-    
+
     st.markdown("---")
-    
-    # C. Historique (Liste simple)
     st.caption("HISTORIQUE")
-    dossiers = list(st.session_state.dossiers.keys())
-    # Inversion pour avoir le plus récent en haut
-    dossiers_reversed = list(reversed(dossiers))
+    chats = list(st.session_state.dossiers.keys())[::-1]
+    if st.session_state.active not in st.session_state.dossiers: st.session_state.active = chats[0]
     
-    # Sécurité
-    if st.session_state.active not in dossiers:
-        st.session_state.active = dossiers[0] if dossiers else "Conversation 1"
-        if not dossiers: st.session_state.dossiers = {"Conversation 1": []}
-
-    choix = st.radio("Historique", dossiers_reversed, index=dossiers_reversed.index(st.session_state.active), label_visibility="collapsed")
-    if choix != st.session_state.active:
-        st.session_state.active = choix
+    sel = st.radio("List", chats, index=chats.index(st.session_state.active), label_visibility="collapsed")
+    if sel != st.session_state.active:
+        st.session_state.active = sel
         st.rerun()
 
     st.markdown("---")
-    
-    # D. Paramètres (Discrets en bas)
-    with st.expander("⚙️ Réglages & Export"):
-        p = st.selectbox("Profil", list(PROFILS.keys()))
+    with st.expander("⚙️ Options"):
+        p = st.selectbox("Profil", ["Général", "Chef d'Entreprise", "Retraité", "Investisseur Immo", "Famille", "Non-Résident"])
         a = st.selectbox("Année", ["2026", "2025"])
-        st.session_state.last_p = p
-        st.session_state.last_a = a
-        
-        st.divider()
-        new_name = st.text_input("Renommer le chat :", value=st.session_state.active)
-        if st.button("Renommer"):
-            if new_name and new_name != st.session_state.active:
-                st.session_state.dossiers[new_name] = st.session_state.dossiers.pop(st.session_state.active)
-                st.session_state.active = new_name
-                st.rerun()
-        
-        if st.button("🗑️ Supprimer ce chat"):
-            if len(dossiers) > 1:
-                del st.session_state.dossiers[st.session_state.active]
-                st.session_state.active = list(st.session_state.dossiers.keys())[0]
-                st.rerun()
+        st.session_state.last_p = p; st.session_state.last_a = a
+        if st.button("🗑️ Effacer"): 
+            if len(chats) > 1: del st.session_state.dossiers[st.session_state.active]; st.session_state.active = list(st.session_state.dossiers.keys())[0]; st.rerun()
+        if st.session_state.dossiers[st.session_state.active]:
+            pdf = create_pdf(st.session_state.active, st.session_state.dossiers[st.session_state.active], p, a)
+            st.download_button("📥 PDF", pdf, "Export.pdf", "application/pdf")
 
-        if st.button("📥 Télécharger PDF"):
-            if st.session_state.dossiers[st.session_state.active]:
-                pdf_data = create_pdf(
-                    st.session_state.active,
-                    st.session_state.dossiers[st.session_state.active],
-                    st.session_state.get("last_p", "Général"),
-                    st.session_state.get("last_a", "2026")
-                )
-                st.download_button("Cliquez pour sauver", data=pdf_data, file_name="Patbot_Export.pdf", mime="application/pdf")
+# --- 5. ZONE PRINCIPALE ---
+chat_history = st.session_state.dossiers[st.session_state.active]
 
-# --- 7. ZONE DE CHAT ---
-# Titre discret (ou pas de titre pour faire comme ChatGPT)
-# st.subheader(st.session_state.active) 
+# A. ÉCRAN D'ACCUEIL (Si chat vide)
+if not chat_history:
+    # Affiche le logo au milieu
+    if os.path.exists(FILE_BLANC):
+        st.image(FILE_BLANC, width=100, output_format="PNG") # On peut centrer avec des colonnes si besoin
+    
+    st.markdown("""
+        <h1 style='text-align: center; margin-bottom: 30px;'>Comment puis-je vous aider ?</h1>
+    """, unsafe_allow_html=True)
 
-# Avatar Chat
+    # Cartes de suggestion
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🏢 Stratégie Holding & Dividendes", use_container_width=True):
+            st.session_state.prompt_trigger = "Quelle est la meilleure stratégie entre Salaire et Dividendes avec une Holding en 2026 ?"
+            st.rerun()
+        if st.button("🏠 Investissement LMNP vs Nu", use_container_width=True):
+            st.session_state.prompt_trigger = "Quels sont les avantages du LMNP par rapport au foncier classique pour un TMI à 30% ?"
+            st.rerun()
+    with col2:
+        if st.button("👨‍👩‍👧‍👦 Préparer sa Succession", use_container_width=True):
+            st.session_state.prompt_trigger = "Comment fonctionne le démembrement de propriété pour réduire les droits de succession ?"
+            st.rerun()
+        if st.button("📈 Optimisation Fiscale 2026", use_container_width=True):
+            st.session_state.prompt_trigger = "Quelles sont les nouveautés fiscales importantes de la Loi de Finances 2026 ?"
+            st.rerun()
+
+# B. AFFICHAGE DES MESSAGES
 bot_avatar = FILE_BLANC if os.path.exists(FILE_BLANC) else "🤖"
 
-# Affichage Historique
-for msg in st.session_state.dossiers[st.session_state.active]:
+for msg in chat_history:
     av = bot_avatar if msg["role"] == "assistant" else None
     with st.chat_message(msg["role"], avatar=av):
         st.markdown(msg["content"])
+        
+        # AJOUT DU BOUTON COPIER (Uniquement pour le bot)
+        if msg["role"] == "assistant":
+            # On utilise un expander discret pour ne pas polluer l'interface
+            with st.expander("📄 Copier la réponse"):
+                st.code(msg["content"], language=None) 
+                # st.code ajoute nativement un bouton "Copier" en haut à droite du bloc
 
-# Input en bas
-if prompt := st.chat_input("Posez votre question patrimoniale..."):
-    st.session_state.dossiers[st.session_state.active].append({"role": "user", "content": prompt})
-    with st.chat_message("user"): st.markdown(prompt)
+# C. GESTION DE L'ENTRÉE (Input ou Suggestion)
+user_input = st.chat_input("Posez votre question à PATBOT...")
+
+# Si on a cliqué sur un bouton de suggestion, on l'utilise comme input
+if st.session_state.prompt_trigger:
+    user_input = st.session_state.prompt_trigger
+    st.session_state.prompt_trigger = None # Reset
+
+if user_input:
+    # 1. User
+    st.session_state.dossiers[st.session_state.active].append({"role": "user", "content": user_input})
+    with st.chat_message("user"): st.markdown(user_input)
     
+    # 2. IA
     with st.chat_message("assistant", avatar=bot_avatar):
-        with st.spinner("Analyse en cours..."):
+        with st.spinner("PATBOT réfléchit..."):
             try:
-                ctx = f"ROLE: Assistant PATBOT. EXPERTISE: Gestion de Patrimoine. ANNEE: {st.session_state.last_a}. CIBLE: {st.session_state.last_p}. STYLE: Professionnel, clair, structuré.\n"
-                for m in st.session_state.dossiers[st.session_state.active]:
-                    ctx += f"{m['role']}: {m['content']}\n"
-                ctx += f"user: {prompt}\nassistant:"
+                ctx = f"ROLE: PATBOT, Expert Patrimoine. ANNEE: {st.session_state.last_a}. CIBLE: {st.session_state.last_p}. STYLE: Professionnel, Markdown.\n"
+                for m in st.session_state.dossiers[st.session_state.active]: ctx += f"{m['role']}: {m['content']}\n"
+                ctx += f"user: {user_input}\nassistant:"
                 
-                resp = model.generate_content(ctx)
-                st.markdown(resp.text)
-                st.session_state.dossiers[st.session_state.active].append({"role": "assistant", "content": resp.text})
-            except Exception as e: st.error(e)
+                resp = model.generate_content(ctx).text
+                st.markdown(resp)
+                
+                # Bouton copier pour la nouvelle réponse
+                with st.expander("📄 Copier la réponse"):
+                    st.code(resp, language=None)
+                
+                st.session_state.dossiers[st.session_state.active].append({"role": "assistant", "content": resp})
+            except Exception as e: st.error(f"Erreur: {e}")
