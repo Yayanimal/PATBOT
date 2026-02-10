@@ -4,6 +4,7 @@ from fpdf import FPDF
 import PyPDF2
 import os
 import base64
+import random # Pour le changement aléatoire des icônes
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
@@ -15,6 +16,19 @@ st.set_page_config(
 
 FILE_NOIR = "LOGONOIR.png"
 FILE_BLANC = "LOGOBLANC.png"
+
+# --- BANQUE DE SUGGESTIONS DYNAMIQUES (Le cerveau créatif) ---
+# PATBOT piochera là-dedans pour changer l'accueil à chaque fois
+SUGGESTIONS_DB = [
+    {"icon": "🏢", "label": "Holding & Dividendes", "prompt": "Quelle est la meilleure stratégie d'arbitrage Rémunération vs Dividendes via une Holding en 2026 ?"},
+    {"icon": "🏠", "label": "Immo : LMNP vs SCI", "prompt": "Fais un comparatif chiffré entre le LMNP au réel et la SCI à l'IS pour un bien à 200k€."},
+    {"icon": "👨‍👩‍👧‍👦", "label": "Protection Conjoint", "prompt": "Comment optimiser la donation au dernier vivant pour protéger mon conjoint sans léser les enfants ?"},
+    {"icon": "📉", "label": "Déficit Foncier", "prompt": "Explique le mécanisme du déficit foncier et son report sur le revenu global."},
+    {"icon": "👵", "label": "PER & Retraite", "prompt": "Le PER est-il intéressant pour une TMI à 41% ? Calcule l'économie d'impôt."},
+    {"icon": "🌍", "label": "Expatriation", "prompt": "Quelles sont les conséquences fiscales d'un départ au Portugal pour un retraité français ?"},
+    {"icon": "🤝", "label": "Pacte Dutreil", "prompt": "Quelles sont les conditions pour mettre en place un Pacte Dutreil avant une transmission ?"},
+    {"icon": "💰", "label": "Assurance Vie Lux", "prompt": "Quels sont les avantages du contrat d'assurance vie luxembourgeois (FID) ?"}
+]
 
 # --- CSS MODERNE ---
 st.markdown("""
@@ -28,16 +42,16 @@ st.markdown("""
         font-size: 20px; font-weight: 600; text-align: center; margin-top: 10px; color: #D4AF37;
     }
     
-    /* Zone de renommage plus jolie */
-    div[data-testid="stTextInput"] input {
-        border-radius: 10px;
+    /* Style du titre éditable */
+    .editable-title {
+        font-size: 30px;
+        font-weight: bold;
+        color: #D4AF37;
     }
     
-    /* Style pour l'expander "📎" proche du chat */
-    .streamlit-expanderHeader {
-        background-color: transparent;
-        font-size: 14px;
-        color: #888;
+    /* Style du Popover (Bouton +) */
+    button[kind="secondary"] {
+        border-radius: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -110,17 +124,23 @@ try:
     model = genai.GenerativeModel("gemini-flash-latest")
 except: st.error("Erreur connexion IA"); st.stop()
 
-if "dossiers" not in st.session_state: st.session_state.dossiers = {"Nouveau Chat": []}
-if "active" not in st.session_state: st.session_state.active = "Nouveau Chat"
+if "dossiers" not in st.session_state: st.session_state.dossiers = {"Nouvelle Discussion": []}
+if "active" not in st.session_state: st.session_state.active = "Nouvelle Discussion"
 if "prompt_trigger" not in st.session_state: st.session_state.prompt_trigger = None
 if "doc_context" not in st.session_state: st.session_state.doc_context = ""
 
-# --- 4. SIDEBAR (NAVIGATION & RENOMMAGE) ---
+# Mode édition du titre
+if "editing_title" not in st.session_state: st.session_state.editing_title = False
+
+# Sélection aléatoire des suggestions (Une fois par session ou reload)
+if "random_suggestions" not in st.session_state:
+    st.session_state.random_suggestions = random.sample(SUGGESTIONS_DB, 4)
+
+# --- 4. SIDEBAR ---
 with st.sidebar:
     render_dynamic_logo()
     st.markdown('<div class="sidebar-title">PATBOT</div>', unsafe_allow_html=True)
     
-    # Bouton Nouveau Chat
     if st.button("＋ Nouvelle discussion", type="primary", use_container_width=True):
         idx = len(st.session_state.dossiers) + 1
         name = f"Discussion {idx}"
@@ -128,68 +148,87 @@ with st.sidebar:
         st.session_state.active = name
         st.session_state.doc_context = ""
         st.session_state.prompt_trigger = None
+        # On change les suggestions pour le fun
+        st.session_state.random_suggestions = random.sample(SUGGESTIONS_DB, 4)
         st.rerun()
 
     st.markdown("---")
-    
-    # LISTE DES CHATS
-    st.caption("MES DISCUSSIONS")
+    st.caption("HISTORIQUE")
     chats = list(st.session_state.dossiers.keys())[::-1]
     if st.session_state.active not in st.session_state.dossiers: st.session_state.active = chats[0]
     
-    sel = st.radio("Sélecteur", chats, index=chats.index(st.session_state.active), label_visibility="collapsed")
+    sel = st.radio("List", chats, index=chats.index(st.session_state.active), label_visibility="collapsed")
     if sel != st.session_state.active:
         st.session_state.active = sel
         st.rerun()
-    
-    # ZONE DE RENOMMAGE (Visible directement)
-    st.markdown("---")
-    st.caption("ÉDITION")
-    new_name = st.text_input("✎ Renommer la discussion :", value=st.session_state.active)
-    if new_name and new_name != st.session_state.active:
-        # On renomme la clé du dictionnaire
-        st.session_state.dossiers[new_name] = st.session_state.dossiers.pop(st.session_state.active)
-        st.session_state.active = new_name
-        st.rerun()
 
     st.markdown("---")
-    # Options avancées
-    with st.expander("⚙️ Profil & PDF"):
+    with st.expander("⚙️ Options & PDF"):
         p = st.selectbox("Profil", ["Général", "Chef d'Entreprise", "Retraité", "Investisseur Immo", "Famille", "Non-Résident"])
         a = st.selectbox("Année", ["2026", "2025"])
         st.session_state.last_p = p; st.session_state.last_a = a
-        
-        if st.button("🗑️ Supprimer ce chat"): 
+        if st.button("🗑️ Effacer"): 
             if len(chats) > 1: del st.session_state.dossiers[st.session_state.active]; st.session_state.active = list(st.session_state.dossiers.keys())[0]; st.rerun()
-        
         if st.session_state.dossiers[st.session_state.active]:
             try:
                 pdf_data = create_pdf(st.session_state.active, st.session_state.dossiers[st.session_state.active], p, a)
                 st.download_button("📥 Télécharger PDF", pdf_data, "Export_Patbot.pdf", "application/pdf")
-            except Exception as e:
-                st.error(f"Erreur PDF: {e}")
+            except Exception as e: st.error(f"Erreur PDF: {e}")
 
 # --- 5. ZONE PRINCIPALE ---
 chat_history = st.session_state.dossiers[st.session_state.active]
 bot_avatar = FILE_BLANC if os.path.exists(FILE_BLANC) else "🤖"
 
-# ECRAN ACCUEIL (Si vide)
+# --- A. TITRE ÉDITABLE (Nouveauté UX) ---
+col_title, col_edit = st.columns([8, 1])
+with col_title:
+    if st.session_state.editing_title:
+        # Champ de texte pour renommer
+        new_name = st.text_input("Nom de la discussion", value=st.session_state.active, label_visibility="collapsed")
+        # Si on change et qu'on fait Entrée (Streamlit relance le script)
+        if new_name != st.session_state.active:
+            st.session_state.dossiers[new_name] = st.session_state.dossiers.pop(st.session_state.active)
+            st.session_state.active = new_name
+            st.session_state.editing_title = False # On sort du mode édition
+            st.rerun()
+    else:
+        # Affichage normal
+        st.markdown(f"<h1 style='margin-top: -20px;'>{st.session_state.active}</h1>", unsafe_allow_html=True)
+
+with col_edit:
+    # Bouton Crayon
+    if st.button("✏️", help="Renommer la discussion"):
+        st.session_state.editing_title = not st.session_state.editing_title
+        st.rerun()
+
+
+# --- B. ECRAN ACCUEIL (Avec Suggestions Aléatoires) ---
 if not chat_history:
     if os.path.exists(FILE_BLANC): st.image(FILE_BLANC, width=100)
-    st.markdown(f"<h1 style='text-align: center;'>{st.session_state.active}</h1>", unsafe_allow_html=True)
-    if st.session_state.doc_context: st.info("✅ Document en mémoire.")
+    
+    if st.session_state.doc_context:
+        st.success("✅ Document PDF en mémoire. Interrogez-le !")
+    
+    # On récupère les 4 suggestions aléatoires du moment
+    sug = st.session_state.random_suggestions
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🏢 Stratégie Holding", use_container_width=True):
-            st.session_state.prompt_trigger = "Quelle est la meilleure stratégie Holding en 2026 ?"
+        if st.button(f"{sug[0]['icon']} {sug[0]['label']}", use_container_width=True):
+            st.session_state.prompt_trigger = sug[0]['prompt']
+            st.rerun()
+        if st.button(f"{sug[1]['icon']} {sug[1]['label']}", use_container_width=True):
+            st.session_state.prompt_trigger = sug[1]['prompt']
             st.rerun()
     with col2:
-        if st.button("💰 Synthèse Document", use_container_width=True, disabled=(not st.session_state.doc_context)):
-            st.session_state.prompt_trigger = "Fais-moi une synthèse chiffrée du document."
+        if st.button(f"{sug[2]['icon']} {sug[2]['label']}", use_container_width=True):
+            st.session_state.prompt_trigger = sug[2]['prompt']
+            st.rerun()
+        if st.button(f"{sug[3]['icon']} {sug[3]['label']}", use_container_width=True):
+            st.session_state.prompt_trigger = sug[3]['prompt']
             st.rerun()
 
-# AFFICHAGE CHAT
+# --- C. AFFICHAGE CHAT ---
 for msg in chat_history:
     av = bot_avatar if msg["role"] == "assistant" else None
     with st.chat_message(msg["role"], avatar=av):
@@ -197,41 +236,58 @@ for msg in chat_history:
         if msg["role"] == "assistant":
             with st.expander("📄 Copier"): st.code(msg["content"], language=None)
 
-# --- ZONE D'UPLOAD DÉPLACÉE (JUSTE AVANT LE CHAT INPUT) ---
-st.markdown("---") # Séparateur visuel
-# C'est ici que ça se passe : Un expander qui colle à la barre de saisie
-with st.expander("📎 Joindre un document PDF (Contexte)", expanded=False):
-    uploaded_file = st.file_uploader("Glissez votre fichier ici", type="pdf", label_visibility="collapsed")
-    if uploaded_file is not None:
-        text = extract_text_from_pdf(uploaded_file)
-        if text != st.session_state.doc_context:
-            st.session_state.doc_context = text
-            st.success(f"✅ Document analysé : {uploaded_file.name}")
-    else:
-        # Si on enlève le fichier, on vide la mémoire
-        if st.session_state.doc_context:
-            st.session_state.doc_context = ""
+# --- D. LE BOUTON PLUS (+) POP-OVER ---
+st.markdown("---") # Séparateur discret
 
-# INPUT USER
-user_input = st.chat_input("Posez votre question à PATBOT...")
+col_plus, col_input = st.columns([1, 15])
+
+# Le Menu "Plus" dans un Popover
+with col_plus:
+    # st.popover est la fonctionnalité "Magic Menu"
+    with st.popover("➕", use_container_width=True, help="Outils & Import"):
+        st.markdown("### 📂 Importer")
+        uploaded_file = st.file_uploader("Ajouter un PDF", type="pdf", label_visibility="collapsed")
+        
+        if uploaded_file is not None:
+            text = extract_text_from_pdf(uploaded_file)
+            if text != st.session_state.doc_context:
+                st.session_state.doc_context = text
+                st.toast(f"Fichier analysé : {uploaded_file.name}", icon="✅")
+        
+        st.divider()
+        st.markdown("### 🛠️ Outils (Bientôt)")
+        st.button("🧮 Simulateur TNS", disabled=True)
+        st.button("🌐 Recherche Web", disabled=True)
+
+# L'Input standard
+with col_input:
+    user_input = st.chat_input("Posez votre question à PATBOT...")
+
+# GESTION INPUT
 if st.session_state.prompt_trigger:
     user_input = st.session_state.prompt_trigger
     st.session_state.prompt_trigger = None
 
 if user_input:
     st.session_state.dossiers[st.session_state.active].append({"role": "user", "content": user_input})
-    with st.chat_message("user"): st.markdown(user_input)
+    
+    # On force le refresh pour afficher le message user tout de suite
+    st.rerun()
+
+# LOGIQUE DE REPONSE (Après rerun pour fluidité)
+if st.session_state.dossiers[st.session_state.active] and st.session_state.dossiers[st.session_state.active][-1]["role"] == "user":
+    last_msg = st.session_state.dossiers[st.session_state.active][-1]["content"]
     
     with st.chat_message("assistant", avatar=bot_avatar):
-        with st.spinner("Analyse..."):
+        with st.spinner("PATBOT analyse..."):
             try:
                 doc_prompt = ""
                 if st.session_state.doc_context:
                     doc_prompt = f"\n\n--- DOCUMENT CONTEXTE ---\n{st.session_state.doc_context}\n--- FIN DOC ---\n"
 
-                ctx = f"ROLE: PATBOT, Expert Patrimoine. ANNEE: {st.session_state.last_a}. PROFIL: {st.session_state.last_p}. STYLE: Pro.{doc_prompt}\n"
-                for m in st.session_state.dossiers[st.session_state.active]: ctx += f"{m['role']}: {m['content']}\n"
-                ctx += f"user: {user_input}\nassistant:"
+                ctx = f"ROLE: PATBOT. ANNEE: {st.session_state.last_a}. PROFIL: {st.session_state.last_p}. STYLE: Expert.{doc_prompt}\n"
+                for m in st.session_state.dossiers[st.session_state.active][:-1]: ctx += f"{m['role']}: {m['content']}\n"
+                ctx += f"user: {last_msg}\nassistant:"
                 
                 resp = model.generate_content(ctx).text
                 st.markdown(resp)
