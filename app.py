@@ -77,3 +77,158 @@ try:
     model = genai.GenerativeModel("gemini-flash-latest")
 except Exception as e:
     st.error(f"Erreur de connexion Google : {e}")
+    st.stop()
+
+# --- 5. PROFILS EXPERTS (Intelligence Métier) ---
+PROFILS_DETAILS = {
+    "🔍 Mode Général": "Encyclopédie fiscale. Définitions et grands principes.",
+    "👤 Jeune Actif": "Accumulation. PEA, Résidence Principale, PER.",
+    "👨‍👩‍👧‍👦 Famille": "Protection conjoint, Transmission, Optimisation successorale.",
+    "👔 Chef d'Entreprise": "Dividendes vs Salaire, Holding, Dutreil, Cession.",
+    "🏖️ Retraité": "Revenus complémentaires, LMNP, Succession, Assurance Vie.",
+    "🏢 Investisseur Immo": "SCI IS/IR, Déficit Foncier, Cash-flow, Malraux.",
+    "🌍 Non-Résident": "Conventions fiscales, Retenue à la source, IFI."
+}
+
+# --- 6. GESTION DES DOSSIERS ---
+if "dossiers" not in st.session_state:
+    st.session_state.dossiers = {"Dossier 1": []}
+if "active_dossier" not in st.session_state:
+    st.session_state.active_dossier = "Dossier 1"
+
+def get_dossier_names(): return list(st.session_state.dossiers.keys())
+
+# --- 7. BARRE LATÉRALE (INTERFACE PRO) ---
+with st.sidebar:
+    # A. LOGO & MARQUE
+    try:
+        st.image(LOGO_URL, width=120) # Ton logo blanc
+    except:
+        st.warning("Logo en chargement...")
+        st.title("PATBOT")
+
+    st.markdown("""
+        <h3 style='color: #D4AF37; margin: 0; padding-top: 10px;'>CABINET DIGITAL</h3>
+        <p style='font-size: 12px; color: #888;'>Powered by Patbot AI</p>
+        <hr style='margin-top: 5px; margin-bottom: 20px;'>
+    """, unsafe_allow_html=True)
+    
+    # B. NAVIGATION
+    st.caption("🗂️ DOSSIERS CLIENTS")
+    if st.button("➕ Nouveau Dossier", use_container_width=True):
+        count = len(st.session_state.dossiers) + 1
+        new_name = f"Dossier {count}"
+        st.session_state.dossiers[new_name] = []
+        st.session_state.active_dossier = new_name
+        st.rerun()
+
+    dossiers = get_dossier_names()
+    # Sécurité liste vide
+    if not dossiers:
+        st.session_state.dossiers = {"Dossier 1": []}
+        dossiers = ["Dossier 1"]
+    
+    if st.session_state.active_dossier not in dossiers:
+        st.session_state.active_dossier = dossiers[0]
+
+    choix = st.radio("Sélection", dossiers, index=dossiers.index(st.session_state.active_dossier), label_visibility="collapsed")
+    if choix != st.session_state.active_dossier:
+        st.session_state.active_dossier = choix
+        st.rerun()
+
+    # C. OUTILS (Renommer / Supprimer / PDF)
+    with st.expander("⚙️ Options & Export PDF"):
+        # Renommer
+        new_name = st.text_input("Nom du dossier :", value=st.session_state.active_dossier)
+        if st.button("Renommer"):
+            if new_name and new_name != st.session_state.active_dossier:
+                st.session_state.dossiers[new_name] = st.session_state.dossiers.pop(st.session_state.active_dossier)
+                st.session_state.active_dossier = new_name
+                st.rerun()
+        
+        # Supprimer
+        if st.button("🗑️ Supprimer le dossier", type="primary"):
+            if len(dossiers) > 1:
+                del st.session_state.dossiers[st.session_state.active_dossier]
+                st.session_state.active_dossier = list(st.session_state.dossiers.keys())[0]
+                st.rerun()
+            else:
+                st.error("Impossible de supprimer le dernier dossier.")
+        
+        st.markdown("---")
+        
+        # EXPORT PDF
+        if st.button("📄 Générer Rapport PDF"):
+            if st.session_state.dossiers[st.session_state.active_dossier]:
+                pdf_bytes = create_pdf(
+                    st.session_state.active_dossier,
+                    st.session_state.dossiers[st.session_state.active_dossier],
+                    st.session_state.get("last_profil", "Général"),
+                    st.session_state.get("last_annee", "2026")
+                )
+                st.download_button(
+                    label="⬇️ Télécharger le PDF",
+                    data=pdf_bytes,
+                    file_name=f"Rapport_{st.session_state.active_dossier}.pdf",
+                    mime="application/pdf"
+                )
+            else:
+                st.warning("Le dossier est vide.")
+
+    st.markdown("---")
+    
+    # D. PARAMÈTRES
+    st.caption("⚖️ CONTEXTE FISCAL")
+    profil = st.selectbox("Profil Client", list(PROFILS_DETAILS.keys()))
+    annee = st.selectbox("Année de référence", ["2026", "2025", "2024"])
+    
+    # Sauvegarde des choix pour le PDF
+    st.session_state.last_profil = profil
+    st.session_state.last_annee = annee
+
+# --- 8. PROMPT SYSTÈME ---
+system_instruction = f"""
+RÔLE : Tu es l'IA PATBOT, Expert Senior en Gestion de Patrimoine et Fiscalité.
+CONTEXTE : Année {annee}.
+PROFIL CLIENT : {profil} ({PROFILS_DETAILS[profil]})
+
+TES RÈGLES :
+1. JURIDIQUE : Tes réponses doivent être basées sur le CGI et le BOFiP.
+2. PRÉCISION : Fais des simulations chiffrées si on te donne des montants.
+3. PRÉSENTATION : Utilise du Markdown (Gras, Titres, Listes) pour être clair.
+"""
+
+# --- 9. INTERFACE DE CHAT ---
+st.title(f"📂 {st.session_state.active_dossier}")
+
+# Historique des messages
+for msg in st.session_state.dossiers[st.session_state.active_dossier]:
+    # Avatar : Ton logo pour le bot, rien pour l'user
+    avatar_img = LOGO_URL if msg["role"] == "assistant" else None
+    with st.chat_message(msg["role"], avatar=avatar_img):
+        st.markdown(msg["content"])
+
+# Zone de saisie
+if prompt := st.chat_input(f"Question pour le dossier {st.session_state.active_dossier}..."):
+    
+    # 1. User
+    st.session_state.dossiers[st.session_state.active_dossier].append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # 2. IA PATBOT
+    with st.chat_message("assistant", avatar=LOGO_URL):
+        with st.spinner("Analyse PATBOT en cours..."):
+            try:
+                # Historique complet pour la mémoire
+                history_text = system_instruction + "\n\n"
+                for m in st.session_state.dossiers[st.session_state.active_dossier]:
+                    history_text += f"{m['role'].upper()}: {m['content']}\n"
+                history_text += f"USER: {prompt}\nASSISTANT:"
+                
+                response = model.generate_content(history_text)
+                st.markdown(response.text)
+                
+                st.session_state.dossiers[st.session_state.active_dossier].append({"role": "assistant", "content": response.text})
+            except Exception as e:
+                st.error(f"Une erreur est survenue : {e}")
