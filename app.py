@@ -29,7 +29,7 @@ SUGGESTIONS_DB = [
     {"icon": "💰", "label": "Assurance Vie Lux", "prompt": "Quels sont les avantages du contrat d'assurance vie luxembourgeois (FID) ?"}
 ]
 
-# --- CSS ---
+# --- CSS (STYLE CHATGPT) ---
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
@@ -126,6 +126,7 @@ if "random_suggestions" not in st.session_state: st.session_state.random_suggest
 with st.sidebar:
     render_dynamic_logo()
     
+    # Bouton Nouveau
     if st.button("＋ Nouvelle discussion", type="primary", use_container_width=True):
         idx = len(st.session_state.dossiers) + 1
         name = f"Discussion {idx}"
@@ -138,7 +139,7 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # ZONE IMPORT SIDEBAR
+    # Import PDF
     st.markdown("**📎 Contexte Documentaire**")
     uploaded_file = st.file_uploader("Glissez votre PDF ici", type="pdf", label_visibility="collapsed")
     if uploaded_file is not None:
@@ -151,7 +152,7 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # HISTORIQUE
+    # Historique
     st.caption("HISTORIQUE")
     chats = list(st.session_state.dossiers.keys())[::-1]
     if st.session_state.active not in st.session_state.dossiers: st.session_state.active = chats[0]
@@ -163,6 +164,7 @@ with st.sidebar:
 
     st.markdown("---")
     
+    # Options
     with st.expander("⚙️ Export & Profil"):
         p = st.selectbox("Profil", ["Général", "Chef d'Entreprise", "Retraité", "Investisseur Immo", "Famille", "Non-Résident"])
         a = st.selectbox("Année", ["2026", "2025"])
@@ -181,7 +183,7 @@ with st.sidebar:
 chat_history = st.session_state.dossiers[st.session_state.active]
 bot_avatar = FILE_BLANC if os.path.exists(FILE_BLANC) else "🤖"
 
-# TITRE EDITABLE
+# A. TITRE ÉDITABLE
 col_title, col_edit = st.columns([8, 1])
 with col_title:
     if st.session_state.editing_title:
@@ -194,11 +196,11 @@ with col_title:
     else:
         st.markdown(f"<h1 style='margin-top: -20px;'>{st.session_state.active}</h1>", unsafe_allow_html=True)
 with col_edit:
-    if st.button("✏️", help="Renommer"):
+    if st.button("✏️", help="Modifier le titre"):
         st.session_state.editing_title = not st.session_state.editing_title
         st.rerun()
 
-# SUGGESTIONS (SI VIDE)
+# B. ECRAN ACCUEIL
 if not chat_history:
     if os.path.exists(FILE_BLANC): st.image(FILE_BLANC, width=100)
     
@@ -218,7 +220,7 @@ if not chat_history:
         if st.button(f"{sug[3]['icon']} {sug[3]['label']}", use_container_width=True):
             st.session_state.prompt_trigger = sug[3]['prompt']; st.rerun()
 
-# AFFICHAGE CHAT
+# C. CHAT
 for msg in chat_history:
     av = bot_avatar if msg["role"] == "assistant" else None
     with st.chat_message(msg["role"], avatar=av):
@@ -226,7 +228,7 @@ for msg in chat_history:
         if msg["role"] == "assistant":
             with st.expander("📄 Copier"): st.code(msg["content"], language=None)
 
-# INPUT UTILISATEUR
+# D. INPUT
 if st.session_state.prompt_trigger:
     user_val = st.session_state.prompt_trigger
     st.session_state.prompt_trigger = None
@@ -236,20 +238,20 @@ else:
 user_input = st.chat_input("Posez votre question...", key="chat_input_widget")
 if user_val: user_input = user_val
 
-# TRAITEMENT DE LA QUESTION
+# E. TRAITEMENT ET AUTO-RENAME
 if user_input:
-    # 1. Ajout message user
+    # 1. Ajout user
     st.session_state.dossiers[st.session_state.active].append({"role": "user", "content": user_input})
     
-    # 2. Appel IA (Affichage Streaming-like)
+    # 2. Réponse IA
     with st.chat_message("user"): st.markdown(user_input)
     
     with st.chat_message("assistant", avatar=bot_avatar):
-        with st.spinner("Analyse..."):
+        with st.spinner("Analyse en cours..."):
             try:
                 doc_prompt = ""
                 if st.session_state.doc_context:
-                    doc_prompt = f"\n\n--- DOCUMENT CLIENT ---\n{st.session_state.doc_context}\n--- FIN DOC ---\n"
+                    doc_prompt = f"\n\n--- DOCUMENT CONTEXTE ---\n{st.session_state.doc_context}\n--- FIN DOC ---\n"
 
                 ctx = f"ROLE: PATBOT. ANNEE: {st.session_state.last_a}. PROFIL: {st.session_state.last_p}. STYLE: Expert.{doc_prompt}\n"
                 for m in st.session_state.dossiers[st.session_state.active][:-1]: ctx += f"{m['role']}: {m['content']}\n"
@@ -260,24 +262,20 @@ if user_input:
                 with st.expander("📄 Copier"): st.code(resp, language=None)
                 st.session_state.dossiers[st.session_state.active].append({"role": "assistant", "content": resp})
                 
-                # --- AUTO-RENOMMAGE INTELLIGENT ---
-                # On déclenche SEULEMENT si c'est le 1er échange (2 messages : user + bot)
-                # ET que le titre commence par "Discussion" ou "Nouvelle"
-                current_len = len(st.session_state.dossiers[st.session_state.active])
-                current_title = st.session_state.active
-                
-                if current_len <= 2 and ("Discussion" in current_title or "Nouvelle" in current_title):
+                # --- LE COEUR DE L'AUTO-RENAME ---
+                # On vérifie si c'est le tout premier échange (2 messages : user + bot)
+                if len(st.session_state.dossiers[st.session_state.active]) == 2:
                     try:
-                        # On demande à l'IA de trouver un titre
-                        titre_prompt = f"Donne un titre très court (max 4 mots, pas de guillemets) qui résume cette question : '{user_input}'"
-                        new_title_resp = model.generate_content(titre_prompt).text.strip().replace('"', '').replace('*', '')
+                        # On demande un titre court à Gemini
+                        titre_prompt = f"Donne un titre de 3 à 5 mots résumant la question : '{user_input}'. Pas de guillemets."
+                        new_title = model.generate_content(titre_prompt).text.strip().replace('"', '').replace("*", "")
                         
-                        # Si le titre est valide, on renomme
-                        if len(new_title_resp) > 2 and len(new_title_resp) < 50:
-                            st.session_state.dossiers[new_title_resp] = st.session_state.dossiers.pop(st.session_state.active)
-                            st.session_state.active = new_title_resp
-                            st.rerun() # On rafraîchit pour afficher le nouveau titre
+                        # Si le titre est valide, on renomme et ON RELANCE L'INTERFACE
+                        if len(new_title) > 2 and len(new_title) < 50:
+                            old_key = st.session_state.active
+                            st.session_state.dossiers[new_title] = st.session_state.dossiers.pop(old_key)
+                            st.session_state.active = new_title
+                            st.rerun() # <--- C'est ici que la magie opère !
                     except:
-                        pass # Si ça rate, tant pis, on garde l'ancien titre
-
+                        pass # Si erreur de titre, on garde l'ancien sans planter
             except Exception as e: st.error(f"Erreur: {e}")
