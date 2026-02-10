@@ -8,7 +8,7 @@ import random
 import matplotlib.pyplot as plt
 import time
 
-# Gestion import Search (Anti-crash si module absent)
+# Gestion import Search (Anti-crash)
 try: from duckduckgo_search import DDGS
 except ImportError: DDGS = None
 
@@ -76,7 +76,7 @@ def search_web_duckduckgo(query):
             return web_context
     except Exception as e: return f"Erreur Web: {e}"
 
-# --- MOTEUR GRAPHIQUE (PIE, DONUT, BAR, LINE) ---
+# --- MOTEUR GRAPHIQUE ---
 def parse_and_render_graph(text):
     if "[[GRAPH:" not in text: return None
     try:
@@ -90,8 +90,8 @@ def parse_and_render_graph(text):
                 key, val = item.split("=")
                 try: data[key.strip()] = float(val.strip().replace("%", "").replace("€", "").replace("k", "000"))
                 except: pass
-        
         if not data: return None
+        
         labels = list(data.keys())
         sizes = list(data.values())
         
@@ -108,39 +108,27 @@ def parse_and_render_graph(text):
             ax.axis('equal')
         elif graph_type == "BAR":
             ax.bar(labels, sizes, color='#D4AF37')
-            ax.tick_params(colors='white', labelsize=8)
-            ax.grid(axis='y', linestyle='--', alpha=0.3)
+            ax.tick_params(colors='white', labelsize=8); ax.grid(axis='y', linestyle='--', alpha=0.3)
         elif graph_type == "LINE":
             ax.plot(labels, sizes, marker='o', linestyle='-', color='#D4AF37', linewidth=2)
             ax.fill_between(labels, sizes, color='#D4AF37', alpha=0.1)
-            ax.tick_params(colors='white', labelsize=8)
-            ax.grid(linestyle='--', alpha=0.3)
+            ax.tick_params(colors='white', labelsize=8); ax.grid(linestyle='--', alpha=0.3)
             
         plt.tight_layout()
         return fig
-    except Exception as e: return None
+    except: return None
 
-# --- GENERATION SECURISEE (RETRY SI QUOTA) ---
+# --- IA SECURISEE ---
 def safe_generate_content(model, prompt):
-    max_retries = 3
-    wait_time = 5
+    max_retries = 3; wait_time = 5
     for attempt in range(max_retries):
-        try:
-            return model.generate_content(prompt).text
+        try: return model.generate_content(prompt).text
         except Exception as e:
-            # Gestion erreur Quota (429) ou Surcharge (503)
             if "429" in str(e) or "503" in str(e):
-                if attempt < max_retries - 1:
-                    time.sleep(wait_time)
-                    wait_time *= 2 # Backoff exponentiel (5s, 10s, 20s)
-                    continue
-                else:
-                    return "⚠️ **PATBOT réfléchit trop vite.** Le serveur est saturé (Quota atteint). Merci d'attendre 1 minute avant de relancer."
-            # Si c'est l'erreur 404 (Modèle introuvable), on le signale
-            elif "404" in str(e):
-                return "⚠️ Erreur technique : Le modèle IA spécifié n'est pas disponible. Vérifiez la clé API."
-            else:
-                return f"Erreur technique : {e}"
+                if attempt < max_retries - 1: time.sleep(wait_time); wait_time *= 2; continue
+                else: return "⚠️ **Surcharge serveur.** Merci de patienter un instant."
+            elif "404" in str(e): return "⚠️ Erreur Modèle (404). Vérifiez la clé API."
+            else: return f"Erreur : {e}"
 
 def create_pdf(name, history, profil, annee):
     class PDF(FPDF):
@@ -163,12 +151,9 @@ def create_pdf(name, history, profil, annee):
         pdf.multi_cell(0, 5, txt); pdf.ln(5)
     return bytes(pdf.output())
 
-# --- 3. INIT SESSIONS ---
+# --- 3. INIT ---
 if "GOOGLE_API_KEY" not in st.secrets: st.error("Clé API manquante"); st.stop()
-try: 
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    # CORRECTION ICI : Retour à l'alias stable qui fonctionnait
-    model = genai.GenerativeModel("gemini-flash-latest") 
+try: genai.configure(api_key=st.secrets["GOOGLE_API_KEY"]); model = genai.GenerativeModel("gemini-flash-latest")
 except: st.error("Erreur connexion IA"); st.stop()
 
 if "dossiers" not in st.session_state: st.session_state.dossiers = {"Nouvelle Discussion": []}
@@ -194,7 +179,7 @@ with st.sidebar:
     if web_on != st.session_state.web_mode: st.session_state.web_mode = web_on; st.rerun()
 
     st.markdown("**📎 Analyser un PDF**")
-    uploaded_file = st.file_uploader("Contrat, Bilan...", type="pdf", label_visibility="collapsed")
+    uploaded_file = st.file_uploader("Document...", type="pdf", label_visibility="collapsed")
     if uploaded_file:
         text = extract_text_from_pdf(uploaded_file)
         if text != st.session_state.doc_context: st.session_state.doc_context = text; st.toast(f"✅ Fichier lu : {uploaded_file.name}")
@@ -256,13 +241,14 @@ with col_edit:
 
 if not chat_history:
     if os.path.exists(FILE_BLANC): st.image(FILE_BLANC, width=100)
+    # --- PHRASE RESTAURÉE ---
     st.markdown("""
     <div style='text-align: center; color: #888; margin-bottom: 30px; line-height: 1.5;'>
-    Expert en gestion de patrimoine (CGI, BOFiP).<br>
-    Pour des données récentes (indices, taux), activez <b>🌐 Recherche Web Live</b>.<br>
-    <i>Pour un graphique : demandez "Fais un Donut" ou "Trace une courbe".</i>
+    Expert en gestion de patrimoine, je base mes analyses sur les textes officiels (CGI, BOFiP).<br>
+    Pour obtenir des données de marché en temps réel, activez <b>🌐 Recherche Web Live</b> dans la barre latérale.
     </div>
     """, unsafe_allow_html=True)
+    # ------------------------
     if st.session_state.doc_context: st.success("📂 Document chargé.")
     sug = st.session_state.random_suggestions
     col1, col2 = st.columns(2)
@@ -309,7 +295,6 @@ if chat_history and chat_history[-1]["role"] == "user":
             for m in chat_history[:-1]: ctx += f"{m['role']}: {m['content']}\n"
             ctx += f"user: {last_msg}\nassistant:"
             
-            # Appel Sécurisé avec Retry
             resp = safe_generate_content(model, ctx)
             
             display_content = resp.split("[[GRAPH:")[0]
