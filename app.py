@@ -5,7 +5,13 @@ import PyPDF2
 import os
 import base64
 import random
-from duckduckgo_search import DDGS
+
+# Gestion des erreurs d'import pour éviter le crash total
+try:
+    from duckduckgo_search import DDGS
+except ImportError:
+    st.error("⚠️ Module 'duckduckgo-search' manquant. Ajoutez-le dans requirements.txt")
+    DDGS = None
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
@@ -18,7 +24,6 @@ st.set_page_config(
 FILE_NOIR = "LOGONOIR.png"
 FILE_BLANC = "LOGOBLANC.png"
 
-# --- BANQUE DE SUGGESTIONS ---
 SUGGESTIONS_DB = [
     {"icon": "📈", "label": "Taux & Marchés", "prompt": "Quels sont les taux d'emprunt actuels (OAT, Euribor) et la tendance immobilière ?"},
     {"icon": "🏢", "label": "Holding", "prompt": "Quelle stratégie Rémunération vs Dividendes privilégier en 2026 ?"},
@@ -30,18 +35,15 @@ SUGGESTIONS_DB = [
     {"icon": "💰", "label": "Assurance Vie", "prompt": "Avantages du contrat luxembourgeois (FID) ?"}
 ]
 
-# --- CSS (INTERFACE NETTE) ---
+# --- CSS ---
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    
     .sidebar-title {
         font-size: 20px; font-weight: 600; text-align: center; margin-top: 10px; color: #D4AF37;
     }
-    
-    /* Zone Drop PDF plus compacte */
     div[data-testid="stFileUploader"] { padding-top: 0px; }
     section[data-testid="stFileUploaderDropzone"] {
         background-color: rgba(255, 255, 255, 0.05);
@@ -49,12 +51,7 @@ st.markdown("""
         border-radius: 8px;
         padding: 10px;
     }
-    
-    /* Style Toggle Web */
-    div[data-testid="stToggle"] label {
-        color: #D4AF37 !important;
-        font-weight: bold;
-    }
+    div[data-testid="stToggle"] label { color: #D4AF37 !important; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -85,7 +82,7 @@ def extract_text_from_pdf(uploaded_file):
         return f"Erreur lecture PDF: {e}"
 
 def search_web_duckduckgo(query):
-    """Recherche Web réelle"""
+    if DDGS is None: return "Module de recherche non installé."
     try:
         with DDGS() as ddgs:
             results = list(ddgs.text(query, region='fr-fr', safesearch='off', max_results=3))
@@ -133,7 +130,7 @@ def create_pdf(name, history, profil, annee):
         pdf.multi_cell(0, 5, txt); pdf.ln(5)
     return bytes(pdf.output())
 
-# --- 3. INIT IA & SESSION ---
+# --- 3. INIT SESSIONS ---
 if "GOOGLE_API_KEY" not in st.secrets: st.error("Clé API manquante"); st.stop()
 try:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
@@ -148,11 +145,10 @@ if "editing_title" not in st.session_state: st.session_state.editing_title = Fal
 if "web_mode" not in st.session_state: st.session_state.web_mode = False
 if "random_suggestions" not in st.session_state: st.session_state.random_suggestions = random.sample(SUGGESTIONS_DB, 4)
 
-# --- 4. SIDEBAR (CENTRE DE CONTRÔLE) ---
+# --- 4. SIDEBAR ---
 with st.sidebar:
     render_dynamic_logo()
     
-    # Bouton Nouveau
     if st.button("＋ Nouvelle discussion", type="primary", use_container_width=True):
         idx = len(st.session_state.dossiers) + 1
         name = f"Discussion {idx}"
@@ -165,17 +161,11 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    
-    # --- ZONE OUTILS (En haut pour visibilité) ---
     st.markdown("### 🛠️ Centre de Contrôle")
     
-    # 1. Mode Web (Toggle)
-    web_on = st.toggle("🌐 Recherche Web Live", value=st.session_state.web_mode, help="Activez pour chercher des taux ou actus récentes.")
-    if web_on != st.session_state.web_mode:
-        st.session_state.web_mode = web_on
-        st.rerun()
+    web_on = st.toggle("🌐 Recherche Web Live", value=st.session_state.web_mode)
+    if web_on != st.session_state.web_mode: st.session_state.web_mode = web_on; st.rerun()
 
-    # 2. Import PDF
     st.markdown("**📎 Analyser un PDF**")
     uploaded_file = st.file_uploader("Contrat, Bilan, Avis...", type="pdf", label_visibility="collapsed")
     if uploaded_file is not None:
@@ -183,12 +173,9 @@ with st.sidebar:
         if text != st.session_state.doc_context:
             st.session_state.doc_context = text
             st.toast(f"✅ Analyse terminée : {uploaded_file.name}")
-    else:
-        st.session_state.doc_context = ""
+    else: st.session_state.doc_context = ""
 
     st.markdown("---")
-    
-    # Historique
     st.caption("HISTORIQUE")
     chats = list(st.session_state.dossiers.keys())[::-1]
     if st.session_state.active not in st.session_state.dossiers: st.session_state.active = chats[0]
@@ -227,7 +214,7 @@ with col_title:
 with col_edit:
     if st.button("✏️"): st.session_state.editing_title = not st.session_state.editing_title; st.rerun()
 
-# Accueil
+# Accueil (Suggestions)
 if not chat_history:
     if os.path.exists(FILE_BLANC): st.image(FILE_BLANC, width=100)
     if st.session_state.doc_context: st.success("📂 Document chargé.")
@@ -240,8 +227,72 @@ if not chat_history:
         if st.button(f"{sug[2]['icon']} {sug[2]['label']}", use_container_width=True): st.session_state.prompt_trigger = sug[2]['prompt']; st.rerun()
         if st.button(f"{sug[3]['icon']} {sug[3]['label']}", use_container_width=True): st.session_state.prompt_trigger = sug[3]['prompt']; st.rerun()
 
-# Chat
+# Affichage des messages (Important: avant l'input)
 for msg in chat_history:
     av = bot_avatar if msg["role"] == "assistant" else None
     with st.chat_message(msg["role"], avatar=av):
-        st.markdown
+        st.markdown(msg["content"])
+        if msg["role"] == "assistant":
+            with st.expander("📄 Copier"): st.code(msg["content"], language=None)
+
+# --- 6. GESTION DES ENTRÉES (SYSTEME ROBUSTE) ---
+
+# Cas 1 : Clic sur bouton suggestion (prioritaire)
+if st.session_state.prompt_trigger:
+    # On ajoute directement
+    st.session_state.dossiers[st.session_state.active].append({"role": "user", "content": st.session_state.prompt_trigger})
+    st.session_state.prompt_trigger = None # Reset
+    st.rerun() # On recharge pour que l'IA réponde
+
+# Cas 2 : Barre de chat (Toujours affichée en bas)
+ph_text = "Recherche Web Active 🌐..." if st.session_state.web_mode else "Posez votre question à PATBOT..."
+user_input = st.chat_input(ph_text)
+
+if user_input:
+    st.session_state.dossiers[st.session_state.active].append({"role": "user", "content": user_input})
+    st.rerun()
+
+# --- 7. REPONSE IA (S'exécute au rechargement) ---
+# On vérifie si le dernier message est de l'utilisateur pour déclencher l'IA
+if chat_history and chat_history[-1]["role"] == "user":
+    last_msg = chat_history[-1]["content"]
+    
+    with st.chat_message("assistant", avatar=bot_avatar):
+        status = "Recherche Web... 🌍" if st.session_state.web_mode else "Analyse..."
+        with st.spinner(status):
+            try:
+                # 1. Recherche Web
+                web_ctx = ""
+                if st.session_state.web_mode: web_ctx = search_web_duckduckgo(last_msg)
+                
+                # 2. Contexte Doc
+                doc_ctx = ""
+                if st.session_state.doc_context: doc_ctx = f"\nDOC:\n{st.session_state.doc_context}\n"
+                
+                # 3. Prompt
+                ctx = f"ROLE: PATBOT. PROFIL: {st.session_state.last_p}. ANNEE: {st.session_state.last_a}. {web_ctx} {doc_ctx}\n"
+                # On ajoute l'historique (sauf le dernier message user qu'on vient d'ajouter)
+                for m in chat_history[:-1]: ctx += f"{m['role']}: {m['content']}\n"
+                ctx += f"user: {last_msg}\nassistant:"
+                
+                # 4. Génération
+                resp = model.generate_content(ctx).text
+                st.markdown(resp)
+                with st.expander("📄 Copier"): st.code(resp, language=None)
+                
+                # 5. Sauvegarde
+                st.session_state.dossiers[st.session_state.active].append({"role": "assistant", "content": resp})
+                
+                # 6. Auto-Rename (Si c'est le tout début de la conv)
+                if len(chat_history) == 2: # 1 user + 1 bot
+                    try:
+                        t = model.generate_content(f"Titre court (3-5 mots) pour: {last_msg}").text.strip().replace('"','')
+                        if len(t) > 2 and len(t) < 50:
+                            old = st.session_state.active
+                            st.session_state.dossiers[t] = st.session_state.dossiers.pop(old)
+                            st.session_state.active = t
+                            st.rerun()
+                    except: pass
+                    
+            except Exception as e:
+                st.error(f"Erreur: {e}")
