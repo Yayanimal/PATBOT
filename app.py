@@ -6,11 +6,10 @@ import os
 import base64
 import random
 
-# Gestion des erreurs d'import pour éviter le crash total
+# Gestion erreurs import
 try:
     from duckduckgo_search import DDGS
 except ImportError:
-    st.error("⚠️ Module 'duckduckgo-search' manquant. Ajoutez-le dans requirements.txt")
     DDGS = None
 
 # --- 1. CONFIGURATION ---
@@ -214,9 +213,19 @@ with col_title:
 with col_edit:
     if st.button("✏️"): st.session_state.editing_title = not st.session_state.editing_title; st.rerun()
 
-# Accueil (Suggestions)
+# Accueil (Suggestions + PRESENTATION)
 if not chat_history:
     if os.path.exists(FILE_BLANC): st.image(FILE_BLANC, width=100)
+    
+    # --- AJOUT DU TEXTE DE PRÉSENTATION ICI ---
+    st.markdown("""
+    <div style='text-align: center; color: #888; margin-bottom: 30px; line-height: 1.5;'>
+    Expert en gestion de patrimoine, je base mes analyses sur les textes officiels (CGI, BOFiP).<br>
+    Pour obtenir des données de marché en temps réel, activez l'option <b>🌐 Recherche Web Live</b> dans la barre latérale.
+    </div>
+    """, unsafe_allow_html=True)
+    # -----------------------------------------
+    
     if st.session_state.doc_context: st.success("📂 Document chargé.")
     sug = st.session_state.random_suggestions
     col1, col2 = st.columns(2)
@@ -227,7 +236,7 @@ if not chat_history:
         if st.button(f"{sug[2]['icon']} {sug[2]['label']}", use_container_width=True): st.session_state.prompt_trigger = sug[2]['prompt']; st.rerun()
         if st.button(f"{sug[3]['icon']} {sug[3]['label']}", use_container_width=True): st.session_state.prompt_trigger = sug[3]['prompt']; st.rerun()
 
-# Affichage des messages (Important: avant l'input)
+# Affichage des messages
 for msg in chat_history:
     av = bot_avatar if msg["role"] == "assistant" else None
     with st.chat_message(msg["role"], avatar=av):
@@ -235,56 +244,46 @@ for msg in chat_history:
         if msg["role"] == "assistant":
             with st.expander("📄 Copier"): st.code(msg["content"], language=None)
 
-# --- 6. GESTION DES ENTRÉES (SYSTEME ROBUSTE) ---
-
-# Cas 1 : Clic sur bouton suggestion (prioritaire)
+# --- INPUT (EN BAS) ---
 if st.session_state.prompt_trigger:
-    # On ajoute directement
-    st.session_state.dossiers[st.session_state.active].append({"role": "user", "content": st.session_state.prompt_trigger})
-    st.session_state.prompt_trigger = None # Reset
-    st.rerun() # On recharge pour que l'IA réponde
+    user_val = st.session_state.prompt_trigger
+    st.session_state.prompt_trigger = None
+else:
+    user_val = None
 
-# Cas 2 : Barre de chat (Toujours affichée en bas)
 ph_text = "Recherche Web Active 🌐..." if st.session_state.web_mode else "Posez votre question à PATBOT..."
 user_input = st.chat_input(ph_text)
+
+if user_val: user_input = user_val
 
 if user_input:
     st.session_state.dossiers[st.session_state.active].append({"role": "user", "content": user_input})
     st.rerun()
 
-# --- 7. REPONSE IA (S'exécute au rechargement) ---
-# On vérifie si le dernier message est de l'utilisateur pour déclencher l'IA
+# Réponse IA
 if chat_history and chat_history[-1]["role"] == "user":
     last_msg = chat_history[-1]["content"]
-    
     with st.chat_message("assistant", avatar=bot_avatar):
         status = "Recherche Web... 🌍" if st.session_state.web_mode else "Analyse..."
         with st.spinner(status):
             try:
-                # 1. Recherche Web
                 web_ctx = ""
                 if st.session_state.web_mode: web_ctx = search_web_duckduckgo(last_msg)
                 
-                # 2. Contexte Doc
                 doc_ctx = ""
                 if st.session_state.doc_context: doc_ctx = f"\nDOC:\n{st.session_state.doc_context}\n"
                 
-                # 3. Prompt
                 ctx = f"ROLE: PATBOT. PROFIL: {st.session_state.last_p}. ANNEE: {st.session_state.last_a}. {web_ctx} {doc_ctx}\n"
-                # On ajoute l'historique (sauf le dernier message user qu'on vient d'ajouter)
                 for m in chat_history[:-1]: ctx += f"{m['role']}: {m['content']}\n"
                 ctx += f"user: {last_msg}\nassistant:"
                 
-                # 4. Génération
                 resp = model.generate_content(ctx).text
                 st.markdown(resp)
                 with st.expander("📄 Copier"): st.code(resp, language=None)
                 
-                # 5. Sauvegarde
                 st.session_state.dossiers[st.session_state.active].append({"role": "assistant", "content": resp})
                 
-                # 6. Auto-Rename (Si c'est le tout début de la conv)
-                if len(chat_history) == 2: # 1 user + 1 bot
+                if len(chat_history) == 2:
                     try:
                         t = model.generate_content(f"Titre court (3-5 mots) pour: {last_msg}").text.strip().replace('"','')
                         if len(t) > 2 and len(t) < 50:
@@ -293,6 +292,4 @@ if chat_history and chat_history[-1]["role"] == "user":
                             st.session_state.active = t
                             st.rerun()
                     except: pass
-                    
-            except Exception as e:
-                st.error(f"Erreur: {e}")
+            except Exception as e: st.error(f"Erreur: {e}")
