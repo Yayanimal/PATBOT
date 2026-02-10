@@ -19,8 +19,8 @@ FILE_NOIR = "LOGONOIR.png"
 FILE_BLANC = "LOGOBLANC.png"
 
 SUGGESTIONS_DB = [
+    {"icon": "🍩", "label": "Donut Patrimoine", "prompt": "Fais un graphique Donut de mon patrimoine : 60% Immobilier, 30% Financier, 10% Liquidités."},
     {"icon": "📈", "label": "Simul. Intérêts", "prompt": "Fais un graphique en courbe (LINE) montrant l'évolution de 10k€ placés à 5% sur 10 ans."},
-    {"icon": "📊", "label": "Allocation Actifs", "prompt": "Fais un graphique Donut : 50% Immobilier, 30% Actions, 20% Cash."},
     {"icon": "🏠", "label": "Crédit Immo", "prompt": "Calcule la mensualité pour 200.000€ empruntés sur 20 ans à 3.8%."},
     {"icon": "🏢", "label": "Holding", "prompt": "Quelle stratégie Rémunération vs Dividendes privilégier en 2026 ?"},
     {"icon": "👨‍👩‍👧‍👦", "label": "Protection Conjoint", "prompt": "Comment optimiser la donation au dernier vivant ?"},
@@ -76,71 +76,73 @@ def search_web_duckduckgo(query):
             return web_context
     except Exception as e: return f"Erreur Web: {e}"
 
-# --- MOTEUR GRAPHIQUE AVANCÉ (V34) ---
+# --- MOTEUR GRAPHIQUE V35 (ROBUSTE) ---
 def parse_and_render_graph(text):
     if "[[GRAPH:" not in text: return None
     try:
         tag = text.split("[[GRAPH:")[1].split("]]")[0]
         graph_type, data_str = tag.split(":", 1)
+        graph_type = graph_type.upper().strip() # Sécurisation majuscules
+        
         data = {}
-        # Parsing robuste
         for item in data_str.split(";"):
             if "=" in item:
                 key, val = item.split("=")
-                try: data[key.strip()] = float(val.strip().replace("%", "").replace("€", ""))
+                try: data[key.strip()] = float(val.strip().replace("%", "").replace("€", "").replace("k", "000"))
                 except: pass
         
         if not data: return None
-
         labels = list(data.keys())
         sizes = list(data.values())
         
-        # Style Pro
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(6, 4))
         fig.patch.set_facecolor('none'); ax.set_facecolor('none')
-        colors = ['#D4AF37', '#B8860B', '#CD853F', '#8B4513', '#A0522D', '#808080'] # Dégradé Or/Bronze
+        colors = ['#D4AF37', '#B8860B', '#CD853F', '#8B4513', '#A0522D', '#808080']
         
-        # 1. CAMEMBERT
         if graph_type == "PIE":
-            wedges, texts, autotexts = ax.pie(sizes, labels=labels, autopct='%1.0f%%', startangle=90, colors=colors)
-            plt.setp(texts, color="white", fontsize=9); plt.setp(autotexts, size=8, weight="bold", color="black")
+            ax.pie(sizes, labels=labels, autopct='%1.0f%%', startangle=90, colors=colors)
             ax.axis('equal')
 
-        # 2. DONUT (Nouveau)
         elif graph_type == "DONUT":
-            wedges, texts, autotexts = ax.pie(sizes, labels=labels, autopct='%1.0f%%', startangle=90, colors=colors, wedgeprops=dict(width=0.4)) # width=0.4 fait le trou
-            plt.setp(texts, color="white", fontsize=9); plt.setp(autotexts, size=8, weight="bold", color="white")
+            # Le Donut est un Pie avec un trou (width=0.4)
+            ax.pie(sizes, labels=labels, autopct='%1.0f%%', startangle=90, colors=colors, wedgeprops=dict(width=0.4, edgecolor='none'))
+            # On ajoute un cercle blanc au centre pour l'effet si besoin, mais width suffit
             ax.axis('equal')
 
-        # 3. BATONS
         elif graph_type == "BAR":
             ax.bar(labels, sizes, color='#D4AF37')
             ax.tick_params(colors='white', labelsize=8)
-            ax.grid(axis='y', linestyle='--', alpha=0.3) # Petite grille discrète
+            ax.grid(axis='y', linestyle='--', alpha=0.3)
 
-        # 4. COURBE (Nouveau)
         elif graph_type == "LINE":
             ax.plot(labels, sizes, marker='o', linestyle='-', color='#D4AF37', linewidth=2)
-            ax.fill_between(labels, sizes, color='#D4AF37', alpha=0.1) # Effet d'aire sous la courbe
+            ax.fill_between(labels, sizes, color='#D4AF37', alpha=0.1)
             ax.tick_params(colors='white', labelsize=8)
             ax.grid(linestyle='--', alpha=0.3)
             
         plt.tight_layout()
         return fig
-    except Exception as e: 
-        print(f"Graph Error: {e}")
-        return None
+    except Exception as e: return None
 
+# --- ANTI-CRASH V35 (PATIENCE ACCRUE) ---
 def safe_generate_content(model, prompt):
     max_retries = 3
+    wait_time = 5 # Secondes
+    
     for attempt in range(max_retries):
-        try: return model.generate_content(prompt).text
+        try:
+            return model.generate_content(prompt).text
         except Exception as e:
-            if "429" in str(e):
-                if attempt < max_retries - 1: time.sleep(5); continue
-                else: return "⚠️ Surcharge serveur (Quota). Réessayez dans 30s."
-            else: return f"Erreur : {e}"
+            if "429" in str(e): # Erreur Quota
+                if attempt < max_retries - 1:
+                    time.sleep(wait_time)
+                    wait_time *= 2 # On double le temps d'attente (5s -> 10s -> 20s)
+                    continue
+                else:
+                    return "⚠️ **Le serveur IA est surchargé (Quota Google).** Merci de patienter une minute avant de réessayer."
+            else:
+                return f"Erreur technique : {e}"
 
 def create_pdf(name, history, profil, annee):
     class PDF(FPDF):
@@ -165,7 +167,10 @@ def create_pdf(name, history, profil, annee):
 
 # --- 3. INIT SESSIONS ---
 if "GOOGLE_API_KEY" not in st.secrets: st.error("Clé API manquante"); st.stop()
-try: genai.configure(api_key=st.secrets["GOOGLE_API_KEY"]); model = genai.GenerativeModel("gemini-flash-latest")
+try: 
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+    # Utilisation du modèle 'flash' standard, souvent plus stable
+    model = genai.GenerativeModel("gemini-1.5-flash") 
 except: st.error("Erreur connexion IA"); st.stop()
 
 if "dossiers" not in st.session_state: st.session_state.dossiers = {"Nouvelle Discussion": []}
@@ -253,7 +258,13 @@ with col_edit:
 
 if not chat_history:
     if os.path.exists(FILE_BLANC): st.image(FILE_BLANC, width=100)
-    st.markdown("<div style='text-align: center; color: #888; margin-bottom: 30px;'>Expert Gestion de Patrimoine (CGI, BOFiP).<br>Activez <b>🌐 Recherche Web</b> pour les données live.</div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style='text-align: center; color: #888; margin-bottom: 30px; line-height: 1.5;'>
+    Expert en gestion de patrimoine (CGI, BOFiP).<br>
+    Pour des données récentes (indices, taux), activez <b>🌐 Recherche Web Live</b>.<br>
+    <i>Pour un graphique : demandez "Fais un Donut" ou "Trace une courbe".</i>
+    </div>
+    """, unsafe_allow_html=True)
     if st.session_state.doc_context: st.success("📂 Document chargé.")
     sug = st.session_state.random_suggestions
     col1, col2 = st.columns(2)
@@ -294,13 +305,14 @@ if chat_history and chat_history[-1]["role"] == "user":
             doc_ctx = ""
             if st.session_state.doc_context: doc_ctx = f"\nDOC:\n{st.session_state.doc_context}\n"
             
-            # --- INSTRUCTION GRAPHIQUE V34 ---
-            graph_instruction = "\nSI demande graphique: [[GRAPH:TYPE:Label1=Val1;Label2=Val2]]. TYPE=PIE|DONUT|BAR|LINE. Exemple LINE: [[GRAPH:LINE:2020=100;2021=110]]. Sinon rien."
+            # Instruction Graphique Renforcée
+            graph_instruction = "\nSI demande graphique: [[GRAPH:TYPE:Label1=Val1;Label2=Val2]]. TYPE=PIE|DONUT|BAR|LINE. Exemple DONUT: [[GRAPH:DONUT:Immo=60;Cash=40]]. Sinon rien."
             
             ctx = f"ROLE: PATBOT. PROFIL: {st.session_state.last_p}. ANNEE: {st.session_state.last_a}. {web_ctx} {doc_ctx} {graph_instruction}\n"
             for m in chat_history[:-1]: ctx += f"{m['role']}: {m['content']}\n"
             ctx += f"user: {last_msg}\nassistant:"
             
+            # Appel Sécurisé avec Retry
             resp = safe_generate_content(model, ctx)
             
             display_content = resp.split("[[GRAPH:")[0]
