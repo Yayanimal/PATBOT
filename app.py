@@ -14,6 +14,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# FICHIERS IMAGES (DOIVENT ÊTRE SUR GITHUB)
 FILE_NOIR = "LOGONOIR.png"
 FILE_BLANC = "LOGOBLANC.png"
 
@@ -26,10 +27,7 @@ st.markdown("""
     .sidebar-title {
         font-size: 20px; font-weight: 600; text-align: center; margin-top: 10px; color: #D4AF37;
     }
-    /* Style pour la zone d'upload */
-    .stFileUploader {
-        padding-top: 10px;
-    }
+    .stFileUploader { padding-top: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -50,7 +48,6 @@ def render_dynamic_logo():
     """, unsafe_allow_html=True)
 
 def extract_text_from_pdf(uploaded_file):
-    """Extrait le texte brut d'un PDF"""
     try:
         reader = PyPDF2.PdfReader(uploaded_file)
         text = ""
@@ -58,7 +55,7 @@ def extract_text_from_pdf(uploaded_file):
             text += page.extract_text() + "\n"
         return text
     except Exception as e:
-        return f"Erreur de lecture : {e}"
+        return f"Erreur lecture PDF: {e}"
 
 def create_pdf(name, history, profil, annee):
     class PDF(FPDF):
@@ -91,9 +88,13 @@ def create_pdf(name, history, profil, annee):
         pdf.cell(0, 8, role, 0, 1)
         pdf.set_font("Arial", '', 10)
         pdf.set_text_color(0)
+        # Gestion encodage caractères spéciaux
         txt = msg["content"].encode('latin-1', 'replace').decode('latin-1')
         pdf.multi_cell(0, 5, txt); pdf.ln(5)
-    return pdf.output(dest='S').encode('latin-1')
+    
+    # --- CORRECTION ICI ---
+    # fpdf2 retourne directement des bytes, plus besoin de 'dest=S' ni d'encode
+    return bytes(pdf.output()) 
 
 # --- 3. INIT IA & SESSION ---
 if "GOOGLE_API_KEY" not in st.secrets: st.error("Clé API manquante"); st.stop()
@@ -105,7 +106,6 @@ except: st.error("Erreur connexion IA"); st.stop()
 if "dossiers" not in st.session_state: st.session_state.dossiers = {"Nouveau Chat": []}
 if "active" not in st.session_state: st.session_state.active = "Nouveau Chat"
 if "prompt_trigger" not in st.session_state: st.session_state.prompt_trigger = None
-# Variable pour stocker le contenu du document analysé
 if "doc_context" not in st.session_state: st.session_state.doc_context = ""
 
 # --- 4. SIDEBAR ---
@@ -118,20 +118,19 @@ with st.sidebar:
         name = f"Discussion {idx}"
         st.session_state.dossiers[name] = []
         st.session_state.active = name
-        st.session_state.doc_context = "" # Reset du document
+        st.session_state.doc_context = ""
         st.session_state.prompt_trigger = None
         st.rerun()
 
     st.markdown("---")
     
-    # ZONE D'UPLOAD FICHIER (NOUVEAU)
+    # UPLOAD FICHIER
     with st.expander("📂 Analyser un document", expanded=True):
         uploaded_file = st.file_uploader("Glissez un PDF (Bilan, Avis d'impôt...)", type="pdf")
         if uploaded_file is not None:
-            # On extrait le texte
             text = extract_text_from_pdf(uploaded_file)
             st.session_state.doc_context = text
-            st.success("✅ Document lu ! PATBOT peut maintenant l'analyser.")
+            st.success("✅ Document lu !")
         else:
             st.session_state.doc_context = ""
 
@@ -146,15 +145,21 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    with st.expander("⚙️ Options"):
+    with st.expander("⚙️ Options & Export"):
         p = st.selectbox("Profil", ["Général", "Chef d'Entreprise", "Retraité", "Investisseur Immo", "Famille", "Non-Résident"])
         a = st.selectbox("Année", ["2026", "2025"])
         st.session_state.last_p = p; st.session_state.last_a = a
+        
         if st.button("🗑️ Effacer"): 
             if len(chats) > 1: del st.session_state.dossiers[st.session_state.active]; st.session_state.active = list(st.session_state.dossiers.keys())[0]; st.rerun()
+        
+        # BOUTON PDF SÉCURISÉ
         if st.session_state.dossiers[st.session_state.active]:
-            pdf = create_pdf(st.session_state.active, st.session_state.dossiers[st.session_state.active], p, a)
-            st.download_button("📥 PDF", pdf, "Export.pdf", "application/pdf")
+            try:
+                pdf_data = create_pdf(st.session_state.active, st.session_state.dossiers[st.session_state.active], p, a)
+                st.download_button("📥 Télécharger PDF", pdf_data, "Export_Patbot.pdf", "application/pdf")
+            except Exception as e:
+                st.error(f"Erreur PDF: {e}")
 
 # --- 5. ZONE PRINCIPALE ---
 chat_history = st.session_state.dossiers[st.session_state.active]
@@ -165,7 +170,7 @@ if not chat_history:
     st.markdown("<h1 style='text-align: center;'>Expertise Patrimoniale IA</h1>", unsafe_allow_html=True)
     
     if st.session_state.doc_context:
-        st.info("💡 Un document est chargé. Vous pouvez demander : 'Analyse ce document' ou 'Fais-moi une synthèse'.")
+        st.info("💡 Document chargé en mémoire. Posez vos questions dessus !")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -205,12 +210,11 @@ if user_input:
     with st.chat_message("assistant", avatar=bot_avatar):
         with st.spinner("Analyse..."):
             try:
-                # ON INJECTE LE DOCUMENT DANS LE CERVEAU DE L'IA
                 doc_prompt = ""
                 if st.session_state.doc_context:
-                    doc_prompt = f"\n\n--- DOCUMENT TÉLÉCHARGÉ PAR LE CLIENT ---\n{st.session_state.doc_context}\n--- FIN DU DOCUMENT ---\nInstruction : Utilise ce document pour répondre si la question s'y rapporte.\n"
+                    doc_prompt = f"\n\n--- DOCUMENT CLIENT ---\n{st.session_state.doc_context}\n--- FIN DOC ---\n"
 
-                ctx = f"ROLE: PATBOT, Expert Patrimoine. ANNEE: {st.session_state.last_a}. PROFIL: {st.session_state.last_p}. STYLE: Pro & Structuré.{doc_prompt}\n"
+                ctx = f"ROLE: PATBOT, Expert Patrimoine. ANNEE: {st.session_state.last_a}. PROFIL: {st.session_state.last_p}. STYLE: Pro.{doc_prompt}\n"
                 for m in st.session_state.dossiers[st.session_state.active]: ctx += f"{m['role']}: {m['content']}\n"
                 ctx += f"user: {user_input}\nassistant:"
                 
