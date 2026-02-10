@@ -1,8 +1,10 @@
 import streamlit as st
 import google.generativeai as genai
 from fpdf import FPDF
+import PyPDF2
 import os
 import base64
+import io
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
@@ -12,64 +14,30 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Noms des fichiers images (Doivent être sur GitHub)
 FILE_NOIR = "LOGONOIR.png"
 FILE_BLANC = "LOGOBLANC.png"
 
-# --- CSS MODERNE (STYLE CHATGPT) ---
+# --- CSS MODERNE ---
 st.markdown("""
 <style>
-    /* Masquer menu et footer Streamlit */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
-    
-    /* Style Titre Sidebar */
     .sidebar-title {
-        font-size: 20px;
-        font-weight: 600;
-        text-align: center;
-        margin-top: 10px;
-        color: #D4AF37; /* Or */
+        font-size: 20px; font-weight: 600; text-align: center; margin-top: 10px; color: #D4AF37;
     }
-    
-    /* Style de l'écran d'accueil (Welcome Screen) */
-    .welcome-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        margin-top: 50px;
-        text-align: center;
-    }
-    .welcome-logo {
-        width: 80px;
-        margin-bottom: 20px;
-        opacity: 0.8;
-    }
-    .welcome-text {
-        font-size: 24px;
-        font-weight: 600;
-        margin-bottom: 10px;
-    }
-    .suggestion-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 10px;
-        max-width: 600px;
-        margin: 0 auto;
-        margin-top: 30px;
+    /* Style pour la zone d'upload */
+    .stFileUploader {
+        padding-top: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # --- 2. FONCTIONS UTILITAIRES ---
 def render_dynamic_logo():
-    """Affiche le logo adapté au thème dans la sidebar"""
     if not os.path.exists(FILE_NOIR) or not os.path.exists(FILE_BLANC): return
     with open(FILE_NOIR, "rb") as f: b64_n = base64.b64encode(f.read()).decode()
     with open(FILE_BLANC, "rb") as f: b64_b = base64.b64encode(f.read()).decode()
-    
     st.markdown(f"""
     <style>
     .ln {{display:block; margin: 0 auto;}} .lb {{display:none; margin: 0 auto;}}
@@ -80,6 +48,17 @@ def render_dynamic_logo():
         <img src="data:image/png;base64,{b64_b}" class="lb" width="130">
     </div>
     """, unsafe_allow_html=True)
+
+def extract_text_from_pdf(uploaded_file):
+    """Extrait le texte brut d'un PDF"""
+    try:
+        reader = PyPDF2.PdfReader(uploaded_file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+        return text
+    except Exception as e:
+        return f"Erreur de lecture : {e}"
 
 def create_pdf(name, history, profil, annee):
     class PDF(FPDF):
@@ -125,8 +104,9 @@ except: st.error("Erreur connexion IA"); st.stop()
 
 if "dossiers" not in st.session_state: st.session_state.dossiers = {"Nouveau Chat": []}
 if "active" not in st.session_state: st.session_state.active = "Nouveau Chat"
-# Variable pour gérer les clics sur les suggestions
 if "prompt_trigger" not in st.session_state: st.session_state.prompt_trigger = None
+# Variable pour stocker le contenu du document analysé
+if "doc_context" not in st.session_state: st.session_state.doc_context = ""
 
 # --- 4. SIDEBAR ---
 with st.sidebar:
@@ -138,8 +118,22 @@ with st.sidebar:
         name = f"Discussion {idx}"
         st.session_state.dossiers[name] = []
         st.session_state.active = name
+        st.session_state.doc_context = "" # Reset du document
         st.session_state.prompt_trigger = None
         st.rerun()
+
+    st.markdown("---")
+    
+    # ZONE D'UPLOAD FICHIER (NOUVEAU)
+    with st.expander("📂 Analyser un document", expanded=True):
+        uploaded_file = st.file_uploader("Glissez un PDF (Bilan, Avis d'impôt...)", type="pdf")
+        if uploaded_file is not None:
+            # On extrait le texte
+            text = extract_text_from_pdf(uploaded_file)
+            st.session_state.doc_context = text
+            st.success("✅ Document lu ! PATBOT peut maintenant l'analyser.")
+        else:
+            st.session_state.doc_context = ""
 
     st.markdown("---")
     st.caption("HISTORIQUE")
@@ -165,75 +159,63 @@ with st.sidebar:
 # --- 5. ZONE PRINCIPALE ---
 chat_history = st.session_state.dossiers[st.session_state.active]
 
-# A. ÉCRAN D'ACCUEIL (Si chat vide)
+# ECRAN ACCUEIL
 if not chat_history:
-    # Affiche le logo au milieu
-    if os.path.exists(FILE_BLANC):
-        st.image(FILE_BLANC, width=100, output_format="PNG") # On peut centrer avec des colonnes si besoin
+    if os.path.exists(FILE_BLANC): st.image(FILE_BLANC, width=100)
+    st.markdown("<h1 style='text-align: center;'>Expertise Patrimoniale IA</h1>", unsafe_allow_html=True)
     
-    st.markdown("""
-        <h1 style='text-align: center; margin-bottom: 30px;'>Comment puis-je vous aider ?</h1>
-    """, unsafe_allow_html=True)
+    if st.session_state.doc_context:
+        st.info("💡 Un document est chargé. Vous pouvez demander : 'Analyse ce document' ou 'Fais-moi une synthèse'.")
 
-    # Cartes de suggestion
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🏢 Stratégie Holding & Dividendes", use_container_width=True):
-            st.session_state.prompt_trigger = "Quelle est la meilleure stratégie entre Salaire et Dividendes avec une Holding en 2026 ?"
+        if st.button("🏢 Stratégie Holding", use_container_width=True):
+            st.session_state.prompt_trigger = "Quelle est la meilleure stratégie Holding en 2026 ?"
             st.rerun()
-        if st.button("🏠 Investissement LMNP vs Nu", use_container_width=True):
-            st.session_state.prompt_trigger = "Quels sont les avantages du LMNP par rapport au foncier classique pour un TMI à 30% ?"
+        if st.button("📄 Synthèse du Document", use_container_width=True, disabled=(not st.session_state.doc_context)):
+            st.session_state.prompt_trigger = "Fais-moi une synthèse structurée du document téléchargé (Chiffres clés, points d'attention)."
             st.rerun()
     with col2:
-        if st.button("👨‍👩‍👧‍👦 Préparer sa Succession", use_container_width=True):
-            st.session_state.prompt_trigger = "Comment fonctionne le démembrement de propriété pour réduire les droits de succession ?"
+        if st.button("👨‍👩‍👧‍👦 Succession", use_container_width=True):
+            st.session_state.prompt_trigger = "Explique le démembrement de propriété."
             st.rerun()
-        if st.button("📈 Optimisation Fiscale 2026", use_container_width=True):
-            st.session_state.prompt_trigger = "Quelles sont les nouveautés fiscales importantes de la Loi de Finances 2026 ?"
+        if st.button("💰 Analyse Financière", use_container_width=True, disabled=(not st.session_state.doc_context)):
+            st.session_state.prompt_trigger = "Analyse la santé financière à partir de ce document et propose des optimisations."
             st.rerun()
 
-# B. AFFICHAGE DES MESSAGES
+# AFFICHAGE CHAT
 bot_avatar = FILE_BLANC if os.path.exists(FILE_BLANC) else "🤖"
-
 for msg in chat_history:
     av = bot_avatar if msg["role"] == "assistant" else None
     with st.chat_message(msg["role"], avatar=av):
         st.markdown(msg["content"])
-        
-        # AJOUT DU BOUTON COPIER (Uniquement pour le bot)
         if msg["role"] == "assistant":
-            # On utilise un expander discret pour ne pas polluer l'interface
-            with st.expander("📄 Copier la réponse"):
-                st.code(msg["content"], language=None) 
-                # st.code ajoute nativement un bouton "Copier" en haut à droite du bloc
+            with st.expander("📄 Copier"): st.code(msg["content"], language=None)
 
-# C. GESTION DE L'ENTRÉE (Input ou Suggestion)
-user_input = st.chat_input("Posez votre question à PATBOT...")
-
-# Si on a cliqué sur un bouton de suggestion, on l'utilise comme input
+# INPUT USER
+user_input = st.chat_input("Votre question...")
 if st.session_state.prompt_trigger:
     user_input = st.session_state.prompt_trigger
-    st.session_state.prompt_trigger = None # Reset
+    st.session_state.prompt_trigger = None
 
 if user_input:
-    # 1. User
     st.session_state.dossiers[st.session_state.active].append({"role": "user", "content": user_input})
     with st.chat_message("user"): st.markdown(user_input)
     
-    # 2. IA
     with st.chat_message("assistant", avatar=bot_avatar):
-        with st.spinner("PATBOT réfléchit..."):
+        with st.spinner("Analyse..."):
             try:
-                ctx = f"ROLE: PATBOT, Expert Patrimoine. ANNEE: {st.session_state.last_a}. CIBLE: {st.session_state.last_p}. STYLE: Professionnel, Markdown.\n"
+                # ON INJECTE LE DOCUMENT DANS LE CERVEAU DE L'IA
+                doc_prompt = ""
+                if st.session_state.doc_context:
+                    doc_prompt = f"\n\n--- DOCUMENT TÉLÉCHARGÉ PAR LE CLIENT ---\n{st.session_state.doc_context}\n--- FIN DU DOCUMENT ---\nInstruction : Utilise ce document pour répondre si la question s'y rapporte.\n"
+
+                ctx = f"ROLE: PATBOT, Expert Patrimoine. ANNEE: {st.session_state.last_a}. PROFIL: {st.session_state.last_p}. STYLE: Pro & Structuré.{doc_prompt}\n"
                 for m in st.session_state.dossiers[st.session_state.active]: ctx += f"{m['role']}: {m['content']}\n"
                 ctx += f"user: {user_input}\nassistant:"
                 
                 resp = model.generate_content(ctx).text
                 st.markdown(resp)
-                
-                # Bouton copier pour la nouvelle réponse
-                with st.expander("📄 Copier la réponse"):
-                    st.code(resp, language=None)
-                
+                with st.expander("📄 Copier"): st.code(resp, language=None)
                 st.session_state.dossiers[st.session_state.active].append({"role": "assistant", "content": resp})
             except Exception as e: st.error(f"Erreur: {e}")
