@@ -11,9 +11,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# NOMS EXACTS DES FICHIERS SUR TON GITHUB (Sans tiret)
-FILE_NOIR = "logonoir.png"   # Pour Mode Clair & PDF
-FILE_BLANC = "logoblanc.png" # Pour Mode Sombre
+# NOMS EXACTS (EN MAJUSCULES COMME SUR TON GITHUB)
+FILE_NOIR = "LOGONOIR.png"   # Pour Mode Clair & PDF
+FILE_BLANC = "LOGOBLANC.png" # Pour Mode Sombre
 
 # --- 2. FONCTION : LOGO DYNAMIQUE (CSS) ---
 def render_dynamic_logo():
