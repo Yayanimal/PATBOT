@@ -5,6 +5,7 @@ import PyPDF2
 import os
 import base64
 import random
+from duckduckgo_search import DDGS # Le moteur de recherche
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
@@ -19,17 +20,17 @@ FILE_BLANC = "LOGOBLANC.png"
 
 # --- BANQUE DE SUGGESTIONS ---
 SUGGESTIONS_DB = [
-    {"icon": "🏢", "label": "Holding & Dividendes", "prompt": "Quelle est la meilleure stratégie d'arbitrage Rémunération vs Dividendes via une Holding en 2026 ?"},
-    {"icon": "🏠", "label": "Immo : LMNP vs SCI", "prompt": "Fais un comparatif chiffré entre le LMNP au réel et la SCI à l'IS pour un bien à 200k€."},
-    {"icon": "👨‍👩‍👧‍👦", "label": "Protection Conjoint", "prompt": "Comment optimiser la donation au dernier vivant pour protéger mon conjoint sans léser les enfants ?"},
-    {"icon": "📉", "label": "Déficit Foncier", "prompt": "Explique le mécanisme du déficit foncier et son report sur le revenu global."},
-    {"icon": "👵", "label": "PER & Retraite", "prompt": "Le PER est-il intéressant pour une TMI à 41% ? Calcule l'économie d'impôt."},
-    {"icon": "🌍", "label": "Expatriation", "prompt": "Quelles sont les conséquences fiscales d'un départ au Portugal pour un retraité français ?"},
-    {"icon": "🤝", "label": "Pacte Dutreil", "prompt": "Quelles sont les conditions pour mettre en place un Pacte Dutreil avant une transmission ?"},
-    {"icon": "💰", "label": "Assurance Vie Lux", "prompt": "Quels sont les avantages du contrat d'assurance vie luxembourgeois (FID) ?"}
+    {"icon": "📈", "label": "Taux & Indices", "prompt": "Quels sont les taux actuels de l'OAT 10 ans et de l'Euribor 3 mois ?"},
+    {"icon": "🏢", "label": "Holding", "prompt": "Quelle stratégie Rémunération vs Dividendes privilégier en 2026 ?"},
+    {"icon": "🏠", "label": "Immo : LMNP vs SCI", "prompt": "Comparatif chiffré LMNP réel vs SCI à l'IS pour un bien à 200k€."},
+    {"icon": "👨‍👩‍👧‍👦", "label": "Protection Conjoint", "prompt": "Comment optimiser la donation au dernier vivant ?"},
+    {"icon": "📉", "label": "Déficit Foncier", "prompt": "Explique le mécanisme du déficit foncier et son report."},
+    {"icon": "👵", "label": "PER & Retraite", "prompt": "Le PER est-il intéressant pour une TMI à 41% ?"},
+    {"icon": "🌍", "label": "Expatriation", "prompt": "Conséquences fiscales d'un départ au Portugal pour un retraité ?"},
+    {"icon": "💰", "label": "Assurance Vie", "prompt": "Avantages du contrat luxembourgeois (FID) ?"}
 ]
 
-# --- CSS (STYLE CHATGPT) ---
+# --- CSS ---
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
@@ -44,10 +45,15 @@ st.markdown("""
         border: 1px dashed #D4AF37;
         border-radius: 10px;
     }
+    /* Style pour le toggle Web */
+    div[data-testid="stToggle"] label {
+        color: #D4AF37 !important;
+        font-weight: bold;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. FONCTIONS UTILITAIRES ---
+# --- 2. FONCTIONS ---
 def render_dynamic_logo():
     if not os.path.exists(FILE_NOIR) or not os.path.exists(FILE_BLANC): return
     with open(FILE_NOIR, "rb") as f: b64_n = base64.b64encode(f.read()).decode()
@@ -72,6 +78,23 @@ def extract_text_from_pdf(uploaded_file):
         return text
     except Exception as e:
         return f"Erreur lecture PDF: {e}"
+
+def search_web_duckduckgo(query):
+    """Effectue une recherche Web réelle"""
+    try:
+        with DDGS() as ddgs:
+            # On cherche 3 résultats pertinents
+            results = list(ddgs.text(query, region='fr-fr', safesearch='off', max_results=3))
+            if not results:
+                return "Aucun résultat trouvé sur le web."
+            
+            # On formate les résultats pour l'IA
+            web_context = "RÉSULTATS RECHERCHE WEB (TEMPS RÉEL) :\n"
+            for res in results:
+                web_context += f"- Titre: {res['title']}\n  Source: {res['href']}\n  Contenu: {res['body']}\n\n"
+            return web_context
+    except Exception as e:
+        return f"Erreur recherche web: {e}"
 
 def create_pdf(name, history, profil, annee):
     class PDF(FPDF):
@@ -104,7 +127,10 @@ def create_pdf(name, history, profil, annee):
         pdf.cell(0, 8, role, 0, 1)
         pdf.set_font("Arial", '', 10)
         pdf.set_text_color(0)
-        txt = msg["content"].encode('latin-1', 'replace').decode('latin-1')
+        try:
+            txt = msg["content"].encode('latin-1', 'replace').decode('latin-1')
+        except:
+            txt = msg["content"]
         pdf.multi_cell(0, 5, txt); pdf.ln(5)
     return bytes(pdf.output())
 
@@ -121,12 +147,12 @@ if "prompt_trigger" not in st.session_state: st.session_state.prompt_trigger = N
 if "doc_context" not in st.session_state: st.session_state.doc_context = ""
 if "editing_title" not in st.session_state: st.session_state.editing_title = False
 if "random_suggestions" not in st.session_state: st.session_state.random_suggestions = random.sample(SUGGESTIONS_DB, 4)
+if "web_mode" not in st.session_state: st.session_state.web_mode = False # Par défaut désactivé
 
 # --- 4. SIDEBAR ---
 with st.sidebar:
     render_dynamic_logo()
     
-    # Bouton Nouveau
     if st.button("＋ Nouvelle discussion", type="primary", use_container_width=True):
         idx = len(st.session_state.dossiers) + 1
         name = f"Discussion {idx}"
@@ -134,12 +160,13 @@ with st.sidebar:
         st.session_state.active = name
         st.session_state.doc_context = ""
         st.session_state.prompt_trigger = None
+        st.session_state.web_mode = False # Reset web mode
         st.session_state.random_suggestions = random.sample(SUGGESTIONS_DB, 4)
         st.rerun()
 
     st.markdown("---")
     
-    # Import PDF
+    # IMPORT PDF
     st.markdown("**📎 Contexte Documentaire**")
     uploaded_file = st.file_uploader("Glissez votre PDF ici", type="pdf", label_visibility="collapsed")
     if uploaded_file is not None:
@@ -152,27 +179,22 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # Historique
+    # HISTORIQUE
     st.caption("HISTORIQUE")
     chats = list(st.session_state.dossiers.keys())[::-1]
     if st.session_state.active not in st.session_state.dossiers: st.session_state.active = chats[0]
-    
     sel = st.radio("List", chats, index=chats.index(st.session_state.active), label_visibility="collapsed")
     if sel != st.session_state.active:
         st.session_state.active = sel
         st.rerun()
 
     st.markdown("---")
-    
-    # Options
     with st.expander("⚙️ Export & Profil"):
         p = st.selectbox("Profil", ["Général", "Chef d'Entreprise", "Retraité", "Investisseur Immo", "Famille", "Non-Résident"])
         a = st.selectbox("Année", ["2026", "2025"])
         st.session_state.last_p = p; st.session_state.last_a = a
-        
         if st.button("🗑️ Supprimer chat"): 
             if len(chats) > 1: del st.session_state.dossiers[st.session_state.active]; st.session_state.active = list(st.session_state.dossiers.keys())[0]; st.rerun()
-        
         if st.session_state.dossiers[st.session_state.active]:
             try:
                 pdf_data = create_pdf(st.session_state.active, st.session_state.dossiers[st.session_state.active], p, a)
@@ -183,7 +205,7 @@ with st.sidebar:
 chat_history = st.session_state.dossiers[st.session_state.active]
 bot_avatar = FILE_BLANC if os.path.exists(FILE_BLANC) else "🤖"
 
-# A. TITRE ÉDITABLE
+# TITRE EDITABLE
 col_title, col_edit = st.columns([8, 1])
 with col_title:
     if st.session_state.editing_title:
@@ -200,27 +222,20 @@ with col_edit:
         st.session_state.editing_title = not st.session_state.editing_title
         st.rerun()
 
-# B. ECRAN ACCUEIL
+# ACCUEIL
 if not chat_history:
     if os.path.exists(FILE_BLANC): st.image(FILE_BLANC, width=100)
-    
-    if st.session_state.doc_context:
-        st.success(f"📂 Fichier chargé. L'IA est prête.")
-    
+    if st.session_state.doc_context: st.success(f"📂 Fichier chargé. L'IA est prête.")
     sug = st.session_state.random_suggestions
     col1, col2 = st.columns(2)
     with col1:
-        if st.button(f"{sug[0]['icon']} {sug[0]['label']}", use_container_width=True):
-            st.session_state.prompt_trigger = sug[0]['prompt']; st.rerun()
-        if st.button(f"{sug[1]['icon']} {sug[1]['label']}", use_container_width=True):
-            st.session_state.prompt_trigger = sug[1]['prompt']; st.rerun()
+        if st.button(f"{sug[0]['icon']} {sug[0]['label']}", use_container_width=True): st.session_state.prompt_trigger = sug[0]['prompt']; st.rerun()
+        if st.button(f"{sug[1]['icon']} {sug[1]['label']}", use_container_width=True): st.session_state.prompt_trigger = sug[1]['prompt']; st.rerun()
     with col2:
-        if st.button(f"{sug[2]['icon']} {sug[2]['label']}", use_container_width=True):
-            st.session_state.prompt_trigger = sug[2]['prompt']; st.rerun()
-        if st.button(f"{sug[3]['icon']} {sug[3]['label']}", use_container_width=True):
-            st.session_state.prompt_trigger = sug[3]['prompt']; st.rerun()
+        if st.button(f"{sug[2]['icon']} {sug[2]['label']}", use_container_width=True): st.session_state.prompt_trigger = sug[2]['prompt']; st.rerun()
+        if st.button(f"{sug[3]['icon']} {sug[3]['label']}", use_container_width=True): st.session_state.prompt_trigger = sug[3]['prompt']; st.rerun()
 
-# C. CHAT
+# AFFICHAGE CHAT
 for msg in chat_history:
     av = bot_avatar if msg["role"] == "assistant" else None
     with st.chat_message(msg["role"], avatar=av):
@@ -228,54 +243,79 @@ for msg in chat_history:
         if msg["role"] == "assistant":
             with st.expander("📄 Copier"): st.code(msg["content"], language=None)
 
-# D. INPUT
-if st.session_state.prompt_trigger:
-    user_val = st.session_state.prompt_trigger
-    st.session_state.prompt_trigger = None
-else:
-    user_val = None
+# BOUTON PLUS ET INPUT
+st.markdown("---")
+col_plus, col_input = st.columns([1, 15])
 
-user_input = st.chat_input("Posez votre question...", key="chat_input_widget")
-if user_val: user_input = user_val
+with col_plus:
+    with st.popover("➕", use_container_width=True):
+        st.markdown("### 🌐 Recherche")
+        # Le Toggle pour activer/désactiver le Web
+        web_on = st.toggle("Accès Internet (Live)", value=st.session_state.web_mode)
+        if web_on != st.session_state.web_mode:
+            st.session_state.web_mode = web_on
+            st.rerun()
+        
+        st.divider()
+        st.markdown("### 🛠️ Outils")
+        st.button("🧮 Simulateurs (Bientôt)", disabled=True)
 
-# E. TRAITEMENT ET AUTO-RENAME
+with col_input:
+    # Si le mode Web est actif, on affiche un petit placeholder différent
+    ph = "Posez votre question (Recherche Web Active 🌐)..." if st.session_state.web_mode else "Posez votre question à PATBOT..."
+    user_input = st.chat_input(ph)
+
+if st.session_state.prompt_trigger: user_input = st.session_state.prompt_trigger; st.session_state.prompt_trigger = None
+
+# TRAITEMENT
 if user_input:
-    # 1. Ajout user
     st.session_state.dossiers[st.session_state.active].append({"role": "user", "content": user_input})
-    
-    # 2. Réponse IA
     with st.chat_message("user"): st.markdown(user_input)
     
     with st.chat_message("assistant", avatar=bot_avatar):
-        with st.spinner("Analyse en cours..."):
+        # Indicateur visuel de ce qui se passe
+        status_text = "Recherche Web en cours... 🌍" if st.session_state.web_mode else "Analyse en cours..."
+        with st.spinner(status_text):
             try:
+                # 1. RECHERCHE WEB (Si activée)
+                web_context = ""
+                if st.session_state.web_mode:
+                    web_context = search_web_duckduckgo(user_input)
+                
+                # 2. CONTEXTE DOC
                 doc_prompt = ""
                 if st.session_state.doc_context:
-                    doc_prompt = f"\n\n--- DOCUMENT CONTEXTE ---\n{st.session_state.doc_context}\n--- FIN DOC ---\n"
+                    doc_prompt = f"\n\n--- DOCUMENT UPLOADÉ ---\n{st.session_state.doc_context}\n--- FIN DOC ---\n"
 
-                ctx = f"ROLE: PATBOT. ANNEE: {st.session_state.last_a}. PROFIL: {st.session_state.last_p}. STYLE: Expert.{doc_prompt}\n"
+                # 3. CONSTRUCTION PROMPT FINAL
+                ctx = f"ROLE: PATBOT. ANNEE: {st.session_state.last_a}. PROFIL: {st.session_state.last_p}. STYLE: Expert."
+                if web_context:
+                    ctx += f"\n\n{web_context}\nInstruction : Utilise ces infos web récentes pour répondre."
+                ctx += f"{doc_prompt}\n"
+                
                 for m in st.session_state.dossiers[st.session_state.active][:-1]: ctx += f"{m['role']}: {m['content']}\n"
                 ctx += f"user: {user_input}\nassistant:"
                 
+                # 4. GENERATION
                 resp = model.generate_content(ctx).text
+                
+                # 5. AFFICHAGE ET SAUVEGARDE
                 st.markdown(resp)
+                if st.session_state.web_mode:
+                    st.caption("ℹ️ Réponse générée avec des données web en temps réel.")
+                    
                 with st.expander("📄 Copier"): st.code(resp, language=None)
                 st.session_state.dossiers[st.session_state.active].append({"role": "assistant", "content": resp})
                 
-                # --- LE COEUR DE L'AUTO-RENAME ---
-                # On vérifie si c'est le tout premier échange (2 messages : user + bot)
+                # 6. AUTO-RENAME (Si premier message)
                 if len(st.session_state.dossiers[st.session_state.active]) == 2:
                     try:
-                        # On demande un titre court à Gemini
-                        titre_prompt = f"Donne un titre de 3 à 5 mots résumant la question : '{user_input}'. Pas de guillemets."
+                        titre_prompt = f"Donne un titre court (3-5 mots) pour : '{user_input}'. Pas de guillemets."
                         new_title = model.generate_content(titre_prompt).text.strip().replace('"', '').replace("*", "")
-                        
-                        # Si le titre est valide, on renomme et ON RELANCE L'INTERFACE
                         if len(new_title) > 2 and len(new_title) < 50:
                             old_key = st.session_state.active
                             st.session_state.dossiers[new_title] = st.session_state.dossiers.pop(old_key)
                             st.session_state.active = new_title
-                            st.rerun() # <--- C'est ici que la magie opère !
-                    except:
-                        pass # Si erreur de titre, on garde l'ancien sans planter
+                            st.rerun()
+                    except: pass
             except Exception as e: st.error(f"Erreur: {e}")
