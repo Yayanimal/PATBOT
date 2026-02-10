@@ -16,7 +16,7 @@ except:
     st.stop()
 
 # 3. Définition du Cerveau (Le Modèle)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-pro')
 
 # 4. Historique de chat (pour qu'il se souvienne de la conversation)
 if "messages" not in st.session_state:
